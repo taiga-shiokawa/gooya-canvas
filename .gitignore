@@ -12,6 +12,18 @@ dist
 dist-ssr
 *.local
 
+# 秘密情報をリポジトリへ入れない（NFR-002）
+.env
+.env.*
+!.env.example
+
+# Test / coverage output
+coverage
+playwright-report
+test-results
+/blob-report
+/playwright/.cache
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

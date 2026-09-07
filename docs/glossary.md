@@ -170,9 +170,20 @@
 |---|---|
 | `generatePrompt` | Prompt Generator（Domain Model → Markdown） |
 | `reviewWorkflow` | Flow Review（Domain Model → Review 結果） |
-| `toReactFlow` / `fromReactFlow` | Domain 型 ↔ React Flow 型の相互変換（`canvas` モジュール内の mapper に限定） |
 
-### 5.4 ファイル命名
+### 5.4 React Flow mapper の接頭辞（3 種）
+
+Domain 型と React Flow 型の変換関数は、変換の向きを接頭辞で表す。React Flow 型が現れるのは `canvas` モジュールの presentation 層の mapper のみで、domain 層には持ち込まない。
+
+| 接頭辞 | 向き | 意味 |
+|---|---|---|
+| `toReactFlow` | Domain → React Flow | Domain Model を React Flow の型へ写像する |
+| `fromReactFlow*` | React Flow → Domain | React Flow から受け取った値を Domain の値へ逆変換する。単一関数ではなく値の種類ごとに分ける |
+| `mergeReactFlow*` | Domain → 既存 React Flow 配列 | Domain の変更を既存配列へマージする（既存要素の参照を維持する） |
+
+公開関数の一覧・各関数の責務・`merge` が必要な理由は `architecture.md` §3.3 が所有する。
+
+### 5.5 ファイル命名
 
 | 対象 | 規則 | 例 |
 |---|---|---|

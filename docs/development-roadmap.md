@@ -13,7 +13,9 @@
 
 Phase 0 → 8 の順に実装する。並行可否は §2 を参照。
 
-### Phase 0 — Project Setup
+**現在地**: Phase 0 / Phase 1 は完了（2026-09-07）。次は Phase 2（Custom Nodes）。
+
+### Phase 0 — Project Setup（完了）
 
 リポジトリ・パイプライン・依存ライブラリの整備。**初手の順序は次で確定**している（development-guidelines §6、architecture §4）。
 
@@ -24,23 +26,32 @@ Phase 0 → 8 の順に実装する。並行可否は §2 を参照。
 
 あわせて以下をセットアップタスクとして計上する（architecture §1.2）。
 
-- ランタイム依存: @xyflow/react / Zustand / zundo / Zod / Tailwind CSS / html-to-image / jsPDF
-- 開発依存: Prettier + eslint-config-prettier / Vitest / Playwright / eslint-plugin-import（`import/no-restricted-paths` zones — architecture §3.2）
-- ディレクトリ骨格: `src/app/` + `src/modules/`（shared を含む 8 モジュール。repository-structure §2 参照）
+- ランタイム依存: @xyflow/react / Zustand / zundo / Zod / html-to-image / jsPDF
+- 開発依存: Prettier + eslint-config-prettier / Vitest / Playwright / Tailwind CSS（v4 + `@tailwindcss/vite`、PostCSS 設定なし）/ eslint-plugin-import-x（`import-x/no-restricted-paths` zones — architecture §3.2）+ eslint-import-resolver-typescript（`@/` エイリアスと拡張子省略を解決できないと zones が発火しない）
+- 依存方向は **zones と ESLint コアの `no-restricted-imports` の二重構成**で担保する。相対パス経由の違反は zones、`@/` エイリアス経由の違反と React Flow の封じ込めは `no-restricted-imports` が受け持つ（repository-structure §5.1）
+- npm scripts: `dev` / `build` / `lint` / `preview` に加え、`format` / `format:check`（Prettier）と `test`（Vitest）/ `test:e2e`（Playwright）を整備する（development-guidelines §1）
+- ディレクトリ骨格: 空ディレクトリを置かない方針（repository-structure）に従い、Phase 0〜1 で作るのは `src/app/` と `workflow` / `canvas` / `shared` の 3 モジュールのみ。残る 5 モジュール（inspector / project / export / prompt / review）は担当フェーズ（Phase 3 / 4 / 5 / 6 / 7）で作成する
 
-**完了条件**: `npm run build` / `npm run lint` が通り、GitHub Pages でビルド成果物が配信されること。ESLint の依存方向 zones が有効であること。
+**完了条件**: `npm run lint` / `npm run format:check` / `npm run test` / `npm run build` が通ること。依存方向の 5 制約（repository-structure §5.1 #1〜#5）が ESLint で有効であること（#1〜#4 は import-x の zones、#5 の React Flow 封じ込めは `no-restricted-imports`）。GitHub Pages（source = GitHub Actions）でビルド成果物が配信されること（AD-12）。
 
-### Phase 1 — Canvas Foundation
+### Phase 1 — Canvas Foundation（完了）
 
 React Flow 配置、Node 追加・移動・削除、Edge 接続・削除、Zoom / Pan、MiniMap。
 
-**完了条件**: AC-001, AC-002, AC-003, AC-004, AC-005, AC-007, AC-008, AC-009（FR-002, FR-003）
+接続ガードはこのフェーズでは**自己接続（self-loop）禁止の最小ガードのみ**を先行実装する（functional-design §5.2）。Node Type ごとの接続ルールは Phase 2 で扱う。
+
+補足（実装済みの前提）:
+
+- Node 表示は React Flow のデフォルトノードを使う。種別ごとの Custom Node は Phase 2 で `nodeTypes` を登録し、Domain Model → React Flow の写像だけを差し替える。
+- 選択状態は canvas の presentation（React Flow 側の描画用フィールド）が保持する。Inspector が選択 Node を必要とする Phase 3 で shared の store へ移す。
+
+**完了条件**: AC-001, AC-002, AC-003, AC-004, AC-005, AC-007, AC-008, AC-009（FR-002, FR-003）および FR-007 のうち自己接続禁止。FR-007 の残余は Phase 2。
 
 ### Phase 2 — Custom Nodes
 
-11 種の Node Type（FR-001）の Custom Node 実装と、Node Type に応じた接続ルール。
+11 種の Node Type（FR-001）の Custom Node 実装と、Node Type に応じた接続ルール（FR-007 の残余 — Trigger は incoming 0、End は outgoing 0 等）。
 
-**完了条件**: FR-001, FR-007, FR-008 を満たすこと（初期要求メモ §43 は 8 種のみ列挙しているが、FR-001 の 11 種を正とする）
+**完了条件**: FR-001, FR-007（残余）, FR-008 を満たすこと（初期要求メモ §43 は 8 種のみ列挙しているが、FR-001 の 11 種を正とする）
 
 ### Phase 3 — Inspector
 

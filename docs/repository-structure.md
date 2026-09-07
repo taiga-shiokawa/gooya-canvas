@@ -10,23 +10,29 @@
 ```text
 gooya-canvas/
 ├─ .github/
-│  └─ workflows/            # GitHub Actions（Pages デプロイ用ワークフロー。AD-12）
+│  └─ workflows/
+│     └─ deploy.yml         # Pages デプロイ専用ワークフロー（1 本のみ。AD-12）
 ├─ .steering/               # ステアリングファイル（タスク単位の作業記録。永続文書に複製しない）
 ├─ docs/                    # 永続的ドキュメント（本書を含む 7 文書体系）
 │  └─ ideas/                # 初期要求メモ等の一次情報
-├─ e2e/                     # Playwright E2E テスト（§6.1）
-├─ public/                  # Vite の静的公開ファイル（favicon 等。加工なしで配信されるもののみ）
+├─ e2e/                     # Playwright E2E テスト（§6.1。Phase 5 で作成予定・未作成）
+├─ public/                  # Vite の静的公開ファイル（`favicon.svg` のみ。加工なしで配信されるもののみ）
 ├─ src/                     # アプリケーション本体（§2）
 ├─ index.html               # SPA のエントリ HTML（画面は 1 つ。architecture §4）
 ├─ vite.config.ts           # base: '/gooya-canvas/' を設定する（GitHub Pages サブパス配信。AD-12）
-├─ tsconfig*.json           # TypeScript 設定（`@/` → `src/` のパスエイリアスを定義。§4.4）
+├─ tsconfig*.json           # TypeScript 設定（`tsconfig.app.json` の paths で `@/` → `./src/` を定義。§4.4 / §8）
 ├─ eslint.config.js         # ESLint 設定（§5 の import zones をここに記述）
+├─ playwright.config.ts     # Playwright 設定（テスト本体は `e2e/` に置く — §6.1。Phase 5）
+├─ .prettierrc              # Prettier 設定（設定値は development-guidelines §4.2 が所有）
+├─ .prettierignore          # Prettier 除外設定（除外対象と理由は development-guidelines §4.2 が所有）
+├─ README.md                # リポジトリの入口（プロダクト概要・開発コマンド・docs 索引・アーキテクチャ要点）
 └─ package.json
 ```
 
-- **`.github/workflows/`**: Pages デプロイ用ワークフロー（build → deploy）を置く。ワークフローファイル名・内容は実装時に確定する（要確認）。git 初期化・GitHub リポジトリ作成が先行する（architecture §4）。
+- **`.github/workflows/`**: ワークフローは `deploy.yml` の 1 本のみ。GitHub Pages デプロイ専用（build ジョブ → deploy ジョブ）であり、**lint / test は含まない**（AD-12、architecture §4）。lint / test をどう実行するかは development-guidelines.md が所有する。
 - **`docs/images/`**: Mermaid で表現できない複雑な図が必要になった場合のみ作成する。独立した diagrams フォルダは作らない。
-- **`.steering/`**: 現在は空。タスク単位の作業記録を置き、永続的な設計情報は置かない。
+- **`.steering/`**: 作業単位ごとに `[YYYYMMDD]-[開発タイトル]/`（`requirements.md` / `design.md` / `tasklist.md`）が追加される。タスク単位の作業記録を置き、永続的な設計情報は置かない。
+- **`public/`**: 現在は `favicon.svg` のみで、`index.html` から参照される。アプリ内で使うアイコンは `public/` に置かず、Bundled Icons として使用モジュールの `presentation/` 配下（または `shared/presentation/`）に置く（§8、NFR-004）。
 
 ## 2. `src/` の構成（モジュラモノリス）
 
@@ -47,6 +53,15 @@ src/
    ├─ review/               # Flow Review・Review Panel
    └─ shared/               # 複数モジュール共有（Zustand store 基盤・共通 UI・ユーティリティ）
 ```
+
+上表は 8 モジュールの**最終形**であり、ディレクトリを先に全部切ることはしない（空ディレクトリ禁止 — §2.1）。Phase 0〜1 完了時点で実在するのは次だけで、残りは担当フェーズの実装時に作成する（フェーズ対応は development-roadmap.md）:
+
+- `src/app/`（App シェル）、`src/main.tsx`、`src/index.css`
+- `src/modules/workflow/`: `domain/` + `index.ts`
+- `src/modules/canvas/`: `application/` + `presentation/` + `index.ts`
+- `src/modules/shared/`: `application/` + `index.ts`
+
+`inspector` / `project` / `export` / `prompt` / `review` の各モジュールディレクトリは未作成である。
 
 ### 2.1 モジュール内部の標準構成
 
@@ -106,30 +121,40 @@ src/modules/<module>/
 
 ### 4.3 React Flow mapper の配置
 
-@xyflow/react の `Node` / `Edge` 型と Domain 型の相互変換（`toReactFlow` / `fromReactFlow`）は `src/modules/canvas/presentation/` 配下の mapper に置く（canvas モジュール外へ React Flow 型を出さない。NFR-010、architecture §3.3）。
+@xyflow/react の `Node` / `Edge` 型と Domain 型の相互変換は、**すべて `src/modules/canvas/presentation/` 配下の mapper に置く**（canvas モジュール外へ React Flow 型を出さない。NFR-010、architecture §3.3）。変換は単一の往復関数ペアではなく、次の 6 関数で構成する:
+
+`toReactFlow` / `mergeReactFlowNodes` / `mergeReactFlowEdges` / `fromReactFlowConnection` / `fromReactFlowPosition` / `fromReactFlowIds`
+
+- 各関数の役割・シグネチャは `docs/functional-design.md` §2.4 が所有する。本節は配置規則のみを定める。
+- Domain → React Flow 方向は `toReactFlow`、React Flow → Domain 方向は `fromReactFlow*` の 3 関数が担う（`fromReactFlow` という単一の逆変換関数は置かない。React Flow 側の入力は Connection / Position / 選択 ID と粒度が異なるため）。
+- 新しい変換が必要になった場合も、他レイヤー・他モジュールに変換ロジックを分散させず、この mapper に追加する。
 
 ### 4.4 import 経路
 
 - パスエイリアス `@/` → `src/` を tsconfig / vite.config.ts に定義し、モジュール間 import は `@/modules/<module>`（= `index.ts`）経由とする。
 - **同一モジュール内**は相対パス import を用いる（自モジュールの barrel を経由しない — 循環防止）。
-- モジュール外から `@/modules/<module>/domain/...` のような**深い import は禁止**（§5.1 の zones で機械的に検出する）。
+- モジュール外から `@/modules/<module>/domain/...` のような**深い import は禁止**（§5.1 #4 の `no-restricted-imports` patterns、および相対パス経由の場合は zones で機械的に検出する）。
 
 ## 5. 依存方向と公開境界
 
 ### 5.1 ESLint zones の具体グロブ
 
-architecture §3.2 の 5 制約を `eslint.config.js` の `import/no-restricted-paths`（zones）+ `no-restricted-imports` で表す。以下が配置規則としての正である（記述構文の細部は実装時の `eslint.config.js` に従う）。
+architecture §3.2 の 5 制約は `eslint.config.js` に**導入済み**で、`npm run lint` により機械的に検出される。使用プラグインは `eslint-plugin-import-x`（ルール名 `import-x/no-restricted-paths`）で、これに `no-restricted-imports`（ESLint コア）を組み合わせる。以下が配置規則としての正である（記述構文の細部は `eslint.config.js` に従う）。
 
-| # | 制約 | target（保護対象） | from（禁止元）/ 禁止 import |
-|---|---|---|---|
-| 1 | domain 最内層 | `src/modules/*/domain/**` | `src/modules/*/application/**`・`src/modules/*/infrastructure/**`・`src/modules/*/presentation/**` からの import 禁止。加えて domain ファイルでは `react` / `react-dom` / `@xyflow/react` の import 禁止（`no-restricted-imports`） |
-| 2 | application の DIP | `src/modules/*/application/**` | `src/modules/*/infrastructure/**`・`src/modules/*/presentation/**` からの import 禁止 |
-| 3 | 逆流禁止 | `src/modules/*/{domain,application}/**` | `presentation` への import 禁止（#1・#2 に包含）。`src/modules/*/infrastructure/**` からも `presentation` への import 禁止 |
-| 4 | モジュール間境界 | `src/modules/<A>/**` | 他モジュール `src/modules/<B>/**` の内部への import 禁止。例外は (a) `@/modules/workflow`（index.ts 公開 API）、(b) `@/modules/shared`（index.ts 公開 API）。モジュールごとに zone を列挙する（例: target `./src/modules/canvas`、from `./src/modules/!(canvas)/**`、except `workflow/index.ts` / `shared/index.ts` 相当） |
-| 5 | React Flow の封じ込め | `src/modules/canvas/**` **以外**のすべて（`src/app/**`・`src/main.tsx` 含む） | `@xyflow/react` の import 禁止（`no-restricted-imports` を canvas 以外の files ブロックに適用） |
+| # | 制約 | 実装手段 | target（保護対象） | from（禁止元）/ 禁止 import |
+|---|---|---|---|---|
+| 1 | domain 最内層 | zones + `no-restricted-imports.paths` | `./src/modules/*/domain/**` | `./src/modules/*/application/**`・`./src/modules/*/infrastructure/**`・`./src/modules/*/presentation/**` からの import 禁止。加えて domain ファイルでは `react` / `react-dom` / `@xyflow/react` の import 禁止（`no-restricted-imports`） |
+| 2 | application の DIP | zones | `./src/modules/*/application/**` | `./src/modules/*/infrastructure/**`・`./src/modules/*/presentation/**` からの import 禁止 |
+| 3 | 逆流禁止 | zones | `./src/modules/*/infrastructure/**` | `./src/modules/*/presentation/**` からの import 禁止 |
+| 4 | モジュール間境界 | zones + `no-restricted-imports.patterns`（二重構成） | zones: 各モジュール `./src/modules/<module>`（8 モジュールを列挙） | zones: from `./src/modules`、except `[<自モジュール>, 'workflow/index.ts', 'shared/index.ts']`。patterns: `@/modules/*/*`・`@/modules/*/*/**`（深い import）と、feature 6 モジュール（`@/modules/canvas` 等 = workflow / shared 以外）への import を禁止 |
+| 5 | React Flow の封じ込め | `no-restricted-imports.paths` のみ（zones ではない） | `src/modules/canvas/**` **以外**のすべて（`src/modules/canvas/domain/**`・他モジュール・`src/app/**`・`src/main.tsx`） | `@xyflow/react` の import 禁止 |
 
+- **#3 の zone は `infrastructure` → `presentation` の 1 本のみ**とする。`domain` / `application` から `presentation` への禁止は #1 / #2 の zone に既に含まれるため、zone を重複させていない。
+- **#5 は zones では表せない**（zones はファイル間パスの制約であり、`node_modules` のパッケージ名を対象にできない）。そのため `no-restricted-imports` の `paths` に `@xyflow/react` を置き、canvas モジュール（`domain/` を除く）にだけ適用しない形で担保する。`no-restricted-imports` は後続の config ブロックが前のブロックを上書きするため、各ファイルがちょうど 1 ブロックにのみ一致するよう `ignores` で排他にしている。
+- **#4 を二重構成にする理由**: zones は解決後のファイルパスで判定するため相対パス経由の越境を検出できるが、`@/` エイリアス経由の深い import・feature モジュール間 import は import specifier のパターンで押さえる方が意図が明示される。両方を掛けることで経路に依存せず違反を検出する。
+- **resolver は必須**: `eslint-import-resolver-typescript`（`createTypeScriptImportResolver({ project: './tsconfig.app.json' })`）を `settings['import-x/resolver-next']` に設定する。これが無いと拡張子省略 import と `@/` エイリアスを解決できず、zones が発火しない。
+- **実装上の注意**: グロブを含む `target` / `from` は末尾に `/**` が必要（`./src/modules/*/domain/**`）。`/**` が無いとファイルパスに一致せず、ルールがエラーも出さずに無言で発火しなくなる（実測で確認）。
 - 同一モジュール・同一レイヤー内の相互 import は制約しない。
-- `eslint-plugin-import` は導入予定（architecture §1.2）。導入までの間もレビューで本表を適用する。
 
 ### 5.2 ポート定義層 / 実装層の配置（DIP の担保）
 
@@ -146,7 +171,7 @@ architecture §3.2 の 5 制約を `eslint.config.js` の `import/no-restricted-
 ### 5.3 エントリポイント（composition root）だけの特権
 
 - **infrastructure 具象を import してよいのは `src/main.tsx` と `src/app/**` のみ**（同一モジュールの infrastructure 内部を除く）。具象をここで生成し、application service へ引数または生成時注入で束ねる（DI コンテナ不採用。AD-10）。
-- ESLint 上は #2・#4 の zones から `src/main.tsx` / `src/app/**` を除外することで表現する。
+- ESLint 上は、zones の `target` / `from` がいずれも `./src/modules` 配下に限られる結果として `src/main.tsx` / `src/app/**` が対象外になり、この特権が表現されている（除外の明示指定は不要）。ただし #5（`@xyflow/react` 禁止）は composition root にも適用される。
 
 ### 5.4 各モジュールの公開 API（`index.ts` に出してよいもの）
 
@@ -166,6 +191,8 @@ architecture §3.2 の 5 制約を `eslint.config.js` の `import/no-restricted-
 |---|---|---|
 | Unit（Vitest） | **ソース隣接（co-location）**: `<対象>.test.ts` / `<対象>.test.tsx` | 重点対象（Zod validation / serialization / migration / Prompt 生成 / Review ルール — architecture §6.1）は `domain/` の純関数隣接に置き、DOM モックなしで動くことを維持する |
 | E2E（Playwright） | リポジトリ直下 `e2e/` | 主要導線（New → Add → Connect → Edit → Save → Open → Generate Prompt）を最優先。Playwright 設定は `playwright.config.ts`（ルート） |
+
+Phase 1 完了時点の実績: Unit テストは co-location で 2 ファイル（`src/modules/canvas/application/canvasUseCases.test.ts` / `src/modules/canvas/presentation/reactFlowMapper.test.ts`）。`e2e/` はまだ存在せず、Phase 5 で作成する。
 
 `tests/` / `__tests__/` ディレクトリ方式は採用しない。テスト用フィクスチャが複数テストで共有される場合のみ `e2e/fixtures/`（E2E 用）または対象モジュール内 `__fixtures__/`（Unit 用）を置く。
 
@@ -197,17 +224,23 @@ architecture §3.2 の 5 制約を `eslint.config.js` の `import/no-restricted-
 | `persistence/`（reader / writer / migrations） | reader / writer → `src/modules/project/`（application + infrastructure）、migrations → `src/modules/workflow/domain/` |
 | `utils/` | `src/modules/shared/`（責務の明確な置き場が決まらない「utils 溜まり」を作らない） |
 
-## 8. 現状スキャフォールドからの移行
+## 8. スキャフォールドからの移行（Phase 0 で完了）
 
-現状は Vite 初期スキャフォールド（`src/App.tsx` / `src/main.tsx` / `src/App.css` / `src/index.css` / `src/assets/`）のままである。実装開始時に次を適用する:
+Vite 初期スキャフォールドから本書の構成への移行は Phase 0 で完了している。以下は完了記録であり、再実施の手順ではない。
 
-- `src/App.tsx` / `src/App.css` → `src/app/` へ移設・置換（スキャフォールドのデモ内容は破棄）。
-- `src/assets/`（Vite デモ用）→ 削除。アプリのアイコン等は Bundled Icons として使用モジュールの `presentation/` 配下または `shared/presentation/` に置く（NFR-004）。
-- `vite.config.ts` へ `base: '/gooya-canvas/'` とパスエイリアス `@/` を追加。
-- git 初期化 → `.github/workflows/` の追加（デプロイは git 初期化・GitHub リポジトリ作成後）。
+- `src/App.tsx` → `src/app/App.tsx` へ移設し、スキャフォールドのデモ内容は破棄した。
+- `src/App.css` を削除した（スタイルは Tailwind + `src/index.css` に統一。development-guidelines §4.1）。
+- `src/assets/`（Vite デモ用）を削除した。アプリのアイコン等は Bundled Icons として使用モジュールの `presentation/` 配下または `shared/presentation/` に置く（NFR-004）。
+- スキャフォールド残骸の `public/icons.svg` を削除した。`public/` に残すのは `index.html` が参照する `favicon.svg` のみとする（§1）。
+- `vite.config.ts` に `base: '/gooya-canvas/'`（AD-12）とパスエイリアス `@` → `./src` を設定した。
+- `tsconfig.app.json` に `paths: { "@/*": ["./src/*"] }` を設定した。**`baseUrl` は TypeScript 6 で非推奨のため使用せず、`paths` のみを置き tsconfig からの相対で解決させる**。
+- git を初期化し、GitHub リポジトリ https://github.com/taiga-shiokawa/gooya-canvas （Public）を作成した。`.github/workflows/deploy.yml`（§1）はこの上で動作する。
+- `README.md` を整備した。プロダクト概要・開発コマンド・`docs/` 7 文書の索引・アーキテクチャ要点を載せ、リポジトリの入口とする（各項目の詳細は所有文書へのリンクに委ね、README に設計情報を複製しない）。
+
+**移行の残課題は無い。** スキャフォールド由来のファイル・ディレクトリはすべて削除または本書の構成へ移設済みであり、本節は以後、記録としてのみ参照する。
 
 ---
 
 ## 付記: 本書の情報源
 
-`docs/architecture.md` §3（モジュール境界・ESLint 制約・SDK 型規約）・§4（GitHub Pages）・§6（テスト戦略）、`docs/functional-design.md` §2（モジュール分割・ポート）・§7.6（サンプル）、初期要求メモ §37〜§38（不採用の記録として）、およびリポジトリ実態（Vite スキャフォールド、git 未初期化）に基づく。
+`docs/architecture.md` §3（モジュール境界・ESLint 制約・SDK 型規約）・§4（GitHub Pages）・§6（テスト戦略）、`docs/functional-design.md` §2（モジュール分割・ポート）・§7.6（サンプル）、初期要求メモ §37〜§38（不採用の記録として）、およびリポジトリ実態（Phase 0〜1 実装済みの `eslint.config.js` / `vite.config.ts` / `tsconfig.app.json` / `.github/workflows/deploy.yml` / `package.json` / `src/` 構成）に基づく。

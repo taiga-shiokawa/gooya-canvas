@@ -7,18 +7,19 @@
 
 ## 1. 開発コマンドと日常ワークフロー
 
-npm scripts の定義一覧は `architecture.md` §5.1（現状）・§5.2（導入予定）を参照する。本書は「いつ何を実行するか」を定める。
+npm scripts の定義一覧は `architecture.md` §5.1（npm scripts）・§5.2（フォーマッタ）を参照する。本書は「いつ何を実行するか」を定める。
 
 | タイミング | 実行するもの |
 |---|---|
 | 開発中 | `npm run dev` |
-| コミット前（必須） | `npm run lint` と `npm run build`（`tsc -b` の型検査を含む）を通す。Vitest 導入後は `npm run test` も必須に加える |
-| PR / main へのマージ前 | 上記に加え、E2E（Playwright 導入後 `npm run test:e2e`）の主要導線 1 本を通す |
+| コミット前（必須） | `npm run format:check`（または `npm run format` で整形）→ `npm run lint` → `npm run test` → `npm run build`（`tsc -b` の型検査を含む）をすべて通す |
+| PR / main へのマージ前 | 上記に加え、E2E（`npm run build` → `npm run test:e2e`）の主要導線 1 本を通す（E2E はビルド成果物に対して走る。実行前提は §5.2。`e2e/` は Phase 5 で追加） |
 | ビルド成果物の確認 | `npm run preview`（GitHub Pages のサブパス配信 `base: '/gooya-canvas/'` の確認を含む） |
 
-- lint / build が通らないコミットを main に入れない。
+- **品質ゲートはローカル実行が前提。** CI は `.github/workflows/deploy.yml`（Pages デプロイ専用）の 1 本のみで、lint / test / format:check を含まない（architecture §4.1）。デプロイ経路で機械的に検査されるのは `npm run build` に含まれる `tsc -b` の型検査だけなので、**push 前に上記 4 つを自分で回す**。
+- lint / test / build / format:check が通らないコミットを main に入れない。
 - デプロイは GitHub Actions → GitHub Pages の自動デプロイのみとする（§6.4）。**手動デプロイ（`dist/` の手動 push 等）は行わない。**
-- 開発に使用する Node.js バージョンの固定（`.nvmrc` / `engines`）は（要確認）— 現時点で未定義。
+- 開発に使用する Node.js は **Node 24 系**とする（CI の `actions/setup-node` は `node-version: 24`、ローカルも v24 系。architecture §4.1）。`.nvmrc` / `engines` によるファイル上の固定は現時点で行っていない。
 
 ## 2. コーディング規約
 
@@ -73,44 +74,61 @@ npm scripts の定義一覧は `architecture.md` §5.1（現状）・§5.2（導
 - コンポーネント名・型名・ポート名はファイル名と一致させる（1 ファイル 1 主エクスポート）。
 - `utils.ts` / `helpers.ts` のような**責務の曖昧な「utils 溜まり」ファイル・ディレクトリを作らない**。共有ロジックは責務名で命名し、Domain Model なら `workflow`、それ以外は `shared` へ置く（repository-structure §4.1）。
 
-## 4. スタイリング規約
+## 4. スタイリング・フォーマット規約
 
-- スタイリングは **Tailwind CSS のユーティリティクラス**を基本とする（AD-05）。CSS-in-JS ライブラリは導入しない。
-- グローバル CSS は `src/index.css`（Tailwind エントリ）のみ。コンポーネント個別の `.css` ファイルを増やさない。
-- Canvas 本体のノードは独自デザインとし、特定 UI フレームワークのビジュアルへ強依存しない（NFR-011）。Radix UI 等のヘッドレス部品の採用判断は（要確認）— architecture §1.2。
+### 4.1 Tailwind CSS の前提
+
+- スタイリングは **Tailwind CSS v4 のユーティリティクラス**を基本とする（AD-05）。適用は Vite プラグイン方式（`@tailwindcss/vite`）で、**PostCSS 設定ファイル（`postcss.config.*`）は作らない**（architecture §1.3）。
+- スタイルのエントリは `src/index.css`。**Tailwind の読込はここの `@import 'tailwindcss'` の 1 行のみ**とし、ほかに置くのは最小限のベース指定（ルート要素 `html` / `body` / `#root` の高さ、`body` の `margin` と System Font 指定）に限る。`tailwind.config.*` を前提とした記述を書かず、テーマ拡張が必要になった場合は v4 の CSS 側（`@theme`）で行う。
+- グローバル CSS は `src/index.css` のみ。コンポーネント個別の `.css` ファイルを増やさない。
+  - **例外: ライブラリが提供する CSS** は `src/index.css` へ集約せず、**それを使用するコンポーネント内で import する**（使用箇所とスタイルの依存を同じファイルに閉じ込め、モジュール境界を越えないため）。実装例は `canvas/presentation/WorkflowCanvas.tsx` の `import '@xyflow/react/dist/style.css'`。この例外は「ライブラリ同梱 CSS の import」に限り、自作のコンポーネント個別 CSS を書く根拠にはしない。
+- `prettier-plugin-tailwindcss`（クラス順序の自動整列）は**未導入**。クラス順序は機械的に整列されないため、レイアウト → サイズ → 色 → 状態（`hover:` / `focus:`）の順を目安に手で揃える。
+- Canvas 本体のノードは独自デザインとし、特定 UI フレームワークのビジュアルへ強依存しない（NFR-011）。**Radix UI 等のヘッドレス UI ライブラリは未導入**のため、Modal / Drawer / Dropdown 等の UI プリミティブは自前実装を前提とする（architecture §1.3）。自前実装ではフォーカストラップ・Esc クローズ・`aria-*` 属性を自分で担保する。
 - 外部フォント・外部スクリプトを読み込まない。System Font と Bundled Icons を使う（NFR-004）。
-- **フォーマッタは Prettier を採用する。** ESLint との競合回避に `eslint-config-prettier` を併用する。具体的な設定値（printWidth 等）と `prettier-plugin-tailwindcss`（クラス順序整列）の採否は導入時に確定する（要確認）。導入後は「フォーマット済みでないコードをコミットしない」を規約とする。
+
+### 4.2 フォーマッタ（Prettier）
+
+- **Prettier ^3.9.6 を採用済み**。ESLint との競合回避に `eslint-config-prettier` を併用する（整形は Prettier、規約違反の検出は ESLint）。
+- 設定は `.prettierrc` の 2 項目のみ（`semi: false` / `singleQuote: true`）。他はすべて Prettier 既定値に従い、**設定を増やさない**（printWidth 等を個別に調整しない）。
+- 実行は `npm run format`（適用）/ `npm run format:check`（差分検出）。**フォーマット済みでないコードをコミットしない**（§1）。
+- `.prettierignore` で `node_modules` / `dist` / `package-lock.json` / `playwright-report` / `test-results` に加え **`*.md` を除外**する。`docs/` の表・Mermaid 図の手書きレイアウトを保つため、Markdown は整形対象外であり手で整える。
 
 ## 5. テスト規約
 
 テスト戦略（何を重視するか）は `architecture.md` §6、配置規則は `repository-structure.md` §6.1 が所有する。本書は書き方の規約を定める。
 
-### 5.1 Unit テスト（Vitest・導入予定）
+### 5.1 Unit テスト（Vitest）
 
+- 実行は `npm run test`（`vitest run --passWithNoTests`）。**`--passWithNoTests` が付いているため、テストが 1 件も無いフェーズでも `test` は成功する**（architecture §5.1）。成功は「重点対象が網羅されている」ことを意味しないので、テスト有無の確認は §7.2 のレビューチェックリストで行う。
 - 配置は**ソース隣接（co-location）**: `<対象>.test.ts` / `<対象>.test.tsx`。`tests/` / `__tests__/` ディレクトリ方式は使わない。
 - 重点対象（この順に優先）: **Workflow Schema（Zod の受理・拒否）→ serialization / deserialization → Schema migration（新しい schemaVersion の拒否含む）→ Prompt generation → Flow validation（RV ルール検出）**。Canvas UI のテストより Domain / Generator / Validator を優先する（メモ §42）。
 - domain 純関数のテストは **DOM・ブラウザ API のモックなし**で書けること。モックが必要になったら、テストではなく実装（純粋性の破れ）を疑い修正する。
 - Prompt generation は決定論的出力のスナップショットテストを基本とし、分岐（Condition / Loop）の反映を個別ケースで検証する。
 - カバレッジの数値目標は設けない。上記の重点対象が網羅されていることをレビューで確認する。
 
-### 5.2 E2E テスト（Playwright・導入予定）
+### 5.2 E2E テスト（Playwright）
 
+- `@playwright/test` と `playwright.config.ts` は導入済みだが、**`e2e/` ディレクトリとテスト本体は Phase 5 で追加する**（architecture §6.2）。それまで `npm run test:e2e` は実行対象を持たない。
 - 配置はリポジトリ直下 `e2e/`、設定は `playwright.config.ts`（ルート）。
+- **実行手順（前提込み）**:
+  1. `npx playwright install` — ブラウザバイナリの取得。**環境ごとに 1 回**必要で、これを行わずに実行すると失敗する。
+  2. `npm run build` — **必須の前提**。`playwright.config.ts` の `webServer` が `npm run preview`（= `vite preview`）を起動し、`baseURL` を `http://localhost:4173/gooya-canvas/` としているため、`dist/` が無い（または古い）状態では preview が対象を配信できず E2E が失敗する。
+  3. `npm run test:e2e` — 実行。
+  - つまり E2E は**開発サーバー（`npm run dev`）ではなくビルド成果物**に対して走る。ソースを変更したら `npm run build` を再実行してから `npm run test:e2e` を回す。
+  - `webServer.reuseExistingServer` は CI 以外で有効なため、手元で `npm run preview` を起動済みならそのサーバーが再利用される（この場合も配信されるのはビルド済みの `dist/`）。
 - 主要導線 1 本（New Project → Add Nodes → Connect → Edit → Save → Open → Generate Prompt）を最優先で維持する。この導線が通らない状態で main へマージしない。
 - Canvas 操作の網羅的 E2E は書かない。追加するのはファイル入出力・Export・Prompt コピー等、ブラウザ統合が必要な受け入れ条件（AC）に限る。
 
 ## 6. Git 規約
 
-### 6.1 リポジトリ初期化（現状 git 未初期化のため最初に実施）
+### 6.1 リポジトリの前提（初期化は Phase 0 で完了）
 
-次の順序で行う（architecture §4・repository-structure §8 の前提）:
-
-1. `git init`（既定ブランチは `main`）。`.gitignore` に `node_modules/`・`dist/`・エディタ設定・`*.local` / `.env*` を含める（Vite スキャフォールドの `.gitignore` を基礎にする）。
-2. 初回コミット（現状スキャフォールド + `docs/`）。
-3. GitHub リポジトリ `gooya-canvas` を作成し、`main` を push。
-4. その後に `.github/workflows/` へ Pages デプロイ用ワークフロー（build → deploy）を追加する。ワークフローの内容は実装時に確定する（要確認）。
-
-秘密情報（API キー・トークン・`.env`）は**いかなる形でもコミットしない**（§2.5）。
+- リポジトリは作成済み: `https://github.com/taiga-shiokawa/gooya-canvas`（Public、既定ブランチ `main`）。公開 URL は `https://taiga-shiokawa.github.io/gooya-canvas/`。
+- `.gitignore` は Vite スキャフォールド由来のものを基礎に、`node_modules` / `dist` / `dist-ssr` / `*.local` / ログ / エディタ設定を無視する。これに加えて次を追加済み:
+  - **秘密情報**: `.env` / `.env.*` を無視し、`!.env.example` で **`.env.example` のみ追跡**する（NFR-002、§2.5）。実値を持つ `.env` 系ファイルは追跡されない前提。MVP は Browser Only で環境変数を使わないため **`.env.example` は現時点で未作成**であり、環境変数を導入した時点でキー名だけを記載した `.env.example` を作成・追跡する。
+  - **テスト出力**: `coverage` / `playwright-report` / `test-results` / `/blob-report` / `/playwright/.cache` を無視する（Vitest のカバレッジと Playwright のレポート・トレースをコミットしない）。
+- CI は `.github/workflows/deploy.yml`（Pages デプロイ専用）の 1 本のみ。**lint / test / format:check を含まないため、品質ゲートはローカル実行が前提**（§1、architecture §4.1）。品質ゲート用の CI ワークフローを追加する場合は architecture §4.1 と本書 §1 を同じ変更で更新する。
+- 秘密情報（API キー・トークン・`.env`）は**いかなる形でもコミットしない**（§2.5）。
 
 ### 6.2 コミットメッセージ（Conventional Commits）
 
@@ -127,7 +145,7 @@ npm scripts の定義一覧は `architecture.md` §5.1（現状）・§5.2（導
 | `build` / `ci` | ビルド設定 / GitHub Actions の変更 |
 
 - 1 コミット 1 関心事。機能追加とリファクタリングを混ぜない。
-- コミット前チェックは §1 に従う（lint + build、導入後は test）。
+- コミット前チェックは §1 に従う（format:check + lint + test + build）。
 
 ### 6.3 ブランチ運用
 
@@ -137,7 +155,7 @@ npm scripts の定義一覧は `architecture.md` §5.1（現状）・§5.2（導
 
 ### 6.4 デプロイ
 
-- デプロイは **GitHub Actions による build → GitHub Pages** のみ（AD-12）。`main` への push をトリガーとする。
+- デプロイは **GitHub Actions による build → GitHub Pages** のみ（AD-12）。`.github/workflows/deploy.yml` が `main` への push（および `workflow_dispatch`）で走る（内容は architecture §4.1）。
 - `dist/` の手動 push・`gh-pages` ブランチの手動操作は禁止する。
 
 ## 7. アーキテクチャ原則を守る運用規約（レビュー規則）
@@ -151,12 +169,21 @@ npm scripts の定義一覧は `architecture.md` §5.1（現状）・§5.2（導
 - `@/modules/<module>/domain/...` のような**深い import は禁止**。
 - `@xyflow/react` の import は `src/modules/canvas/**` 内のみ。infrastructure 具象の import は `src/main.tsx` / `src/app/**`（composition root）と同一モジュール内のみ。
 
+**依存方向の担保は ESLint の二重構成**である（architecture §3.2）。`eslint-plugin-import-x` の `import-x/no-restricted-paths`（zones）が**相対パス**の違反を、`no-restricted-imports`（paths / patterns）が **`@/` エイリアス経由**の違反を検出する。zones は import の解決に依存するため resolver に `eslint-import-resolver-typescript` を設定している。また **`@xyflow/react` のようなパッケージ import は zones の対象外**なので、React Flow の封じ込め（#5）は `no-restricted-imports` の `paths` のみで担保する。どちらか一方だけでは抜けが出るため、制約を追加・変更するときは**該当する両方に反映する**（制約ごとの対応は §7.2）。
+
 ### 7.2 レビューチェックリスト
 
-`eslint-plugin-import` 導入までは、**repository-structure §5.1 の zones 表（5 制約）を PR レビューの必須観点として手動適用する**。導入後も以下は人が確認する:
+repository-structure §5.1 の 5 制約はいずれも**機械的に検出される（導入済み）**ため、`npm run lint` を通すことがそのままチェックになる。担保するルールは制約ごとに異なる（§7.1 の二重構成に対応）:
 
-- [ ] domain に React / React Flow / ブラウザ API が入っていないか（純粋性）
-- [ ] application が infrastructure 具象を直接 import していないか（DIP。ポート経由か）
+- **#1〜#4（レイヤー間の依存方向・モジュール間境界）**: `eslint-plugin-import-x` の `import-x/no-restricted-paths`（zones）。
+- **#5（React Flow の封じ込め）**: ESLint コアの `no-restricted-imports`（`paths` に `@xyflow/react` を指定）。zones はパッケージ import を対象にできないため、こちらが正となる。
+- 補助として、#4 の `@/` エイリアス経由・深い import は `no-restricted-imports` の `patterns` でも検出する（§7.1）。制約を追加・変更するときは**該当する両方のルールに反映する**。
+
+一方、以下は機械的に検出できないので人が確認する:
+
+- [ ] domain に**ブラウザ API**（`window` / `document` / `localStorage` / `crypto` 等のグローバル）が入っていないか（純粋性。import ではないため ESLint の import 制約では検出されない）
+- [ ] 純関数の中で `Date.now()` / `Math.random()` / `crypto.randomUUID()` を呼んでいないか（決定論性。§2.2）
+- [ ] `eslint-disable` で依存方向の制約を回避していないか（§2.1）
 - [ ] ポートの公開シグネチャにライブラリ固有型・例外が漏れていないか（SDK 型境界。React Flow 型は canvas mapper 内限定）
 - [ ] store・公開 API に React Flow 型が出ていないか（NFR-010）
 - [ ] ビジネスロジック（接続判定・Review・Prompt 生成）が presentation に書かれていないか（SRP）
@@ -173,4 +200,4 @@ npm scripts の定義一覧は `architecture.md` §5.1（現状）・§5.2（導
 
 ## 付記: 本書の情報源
 
-`docs/architecture.md` §5（コマンド）・§6（テスト戦略）、`docs/repository-structure.md` §4（配置・命名の基礎）・§5（依存境界）・§6（テスト配置）、初期要求メモ `docs/ideas/initial-requirements.md` §31（ショートカット実装の注意）・§37（camelCase 命名例）・§39（セキュリティ）・§42（テスト重点）、およびリポジトリ実態（npm scripts、git 未初期化、テスト・フォーマッタ未設定）に基づく。
+`docs/architecture.md` §1.3（Tailwind / ESLint プラグイン選定）・§3.2（依存方向の機械的担保）・§4.1（デプロイワークフロー）・§5（コマンド・フォーマッタ）・§6（テスト戦略）、`docs/repository-structure.md` §4（配置・命名の基礎）・§5（依存境界）・§6（テスト配置）、初期要求メモ `docs/ideas/initial-requirements.md` §31（ショートカット実装の注意）・§37（camelCase 命名例）・§39（セキュリティ）・§42（テスト重点）、およびリポジトリ実態（`package.json` の npm scripts、`eslint.config.js`、`.prettierrc` / `.prettierignore`、`.github/workflows/deploy.yml`）に基づく。§1・§4・§5・§6・§7 は Phase 0 + Phase 1 の実装で確定した内容を反映済み。

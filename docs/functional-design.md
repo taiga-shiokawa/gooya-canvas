@@ -36,7 +36,7 @@ graph TD
 | モジュール | 責務（単一責任） | 主な成果物 |
 |---|---|---|
 | `workflow`（コアドメイン） | Workflow Domain Model（型・Zod スキーマ・schemaVersion / migration・ノード種別カタログ・接続ルール）。React / @xyflow/react に一切依存しない純粋 TypeScript | `WorkflowProject` ほか本書 §3 の型、`connectionRules`、`migrations` |
-| `canvas` | React Flow による描画と操作（Palette / Custom Node / Context Menu / ショートカット）。React Flow 型 ↔ Domain 型の相互変換 | `WorkflowCanvas`、`NodePalette`、mapper |
+| `canvas` | React Flow による描画と操作（Palette / Custom Node / Context Menu / ショートカット）。React Flow 型 ↔ Domain 型の相互変換 | `WorkflowCanvas`、`NodePalette`、mapper（`toReactFlow` / `fromReactFlow*` / `mergeReactFlow*`。§2.4） |
 | `inspector` | 選択中 Node / Edge の設定編集 UI | `Inspector` と Node Type 別フォーム |
 | `project` | 新規作成 / 保存 / 読込 / dirty 管理 / Crash Recovery のユースケース | save / open / recover の application service |
 | `export` | Canvas 全体の PNG / PDF 出力ユースケース | `exportPng`, `exportPdf` |
@@ -72,9 +72,18 @@ graph TD
 ### 2.4 Canvas UI と Domain Model の分離規約（NFR-010）
 
 - **Source of Truth は Zustand store が保持する Domain Model**（`WorkflowNode[]` / `WorkflowEdge[]` / metadata / promptSettings）とする。
-- @xyflow/react の `Node` / `Edge` 型は `canvas` モジュール内の mapper（`toReactFlow` / `fromReactFlow`）でのみ相互変換し、**store・domain・application の公開シグネチャに React Flow 型を出さない**。
+- @xyflow/react の `Node` / `Edge` 型は `canvas` モジュール内の mapper でのみ扱い、**store・domain・application の公開シグネチャに React Flow 型を出さない**。mapper の関数構成は次の 3 系統とする。
+
+| 関数 | 方向 | 役割 |
+|---|---|---|
+| `toReactFlow(graph)` | Domain → React Flow | Domain Model から React Flow の `nodes` / `edges` を生成する |
+| `fromReactFlowConnection` / `fromReactFlowPosition` / `fromReactFlowIds` | React Flow → Domain | 接続・座標・選択/削除対象 ID を Domain 値へ変換する（`fromReactFlow` という単一関数は置かない。React Flow のイベントは種類ごとに必要な情報が異なるため） |
+| `mergeReactFlowNodes` / `mergeReactFlowEdges` | Domain の変更 → 既存 React Flow 配列 | Domain の変更を既存配列へマージする。**変化のない要素は同一参照を維持し、配列全体に変化が無ければ配列そのものも同一参照を返す** |
+
+- **controlled flow の要点**: React Flow は `measured`（測定済みサイズ）や `selected` を、props で渡したノード／エッジ**オブジェクト自身**に保持する。そのため Domain の変更ごとに配列を作り直すと MiniMap が描画されないなどの不整合が起きる。これを避けるため、(a) Domain → React Flow の同期は store の `subscribe` で購読し `mergeReactFlow*` を通して適用する、(b) `onNodesChange` の `dimensions` 変更を `applyNodeChanges` で適用しないと `measured` が付かないため、同 handler で必ず適用する。
 - JSON 保存・Prompt 生成・Flow Review はすべて Domain Model を入力とし、React Flow の内部状態を直接読まない。
-- store が持つ UI 状態: `selectedNodeIds` / `selectedEdgeId` / `viewport` / `isDirty` / inspector・panel の開閉状態 / prompt settings。Undo / Redo 履歴は zundo で Node / Edge 配列のみを対象にする（§11）。
+- store が持つ UI 状態: `viewport` / `isDirty` / inspector・panel の開閉状態 / prompt settings。Undo / Redo 履歴は zundo で Node / Edge 配列のみを対象にする（§11）。
+- **選択状態（選択中の Node / Edge）の所有者**: 選択状態は Domain Model ではないため store には持たせない。**Phase 1 は `canvas` の presentation（`WorkflowCanvas`）が React Flow の `nodes` / `edges` 配列上（各要素の `selected`）に保持する**。Inspector が選択ノードを参照する必要が生じる **Phase 3 で `shared` の store へ移す**（`selectedNodeIds` / `selectedEdgeId` として保持し、presentation は store を購読する）。移行時も React Flow 型は store へ出さず、ID のみを保持する。
 
 ## 3. データモデル定義
 
@@ -275,12 +284,14 @@ graph LR
 
 ### 5.1 ノード操作（FR-001, FR-002, FR-004）
 
-- **追加**: Node Palette から Canvas へドラッグ&ドロップで追加する。追加時に種別ごとの既定 `title` と初期 `config`（§3.3。Condition は `branches: ["Yes", "No"]`）を設定する。
-- **移動 / 選択**: ドラッグ移動、クリック選択、Selection Rectangle と Shift クリックによる複数選択。移動時は Snap to Grid を有効にする。
+本節は MVP 完成時点の仕様である。フェーズ差のある項目には担当フェーズを注記する（フェーズ定義は `docs/development-roadmap.md`）。
+
+- **追加**: Node Palette から Canvas へドラッグ&ドロップで追加する。追加時に種別ごとの既定 `title` と初期 `config`（§3.3。Condition は `branches: ["Yes", "No"]`）を設定する。**種別ごとの初期 `config` の設定は Phase 2〜3**（Phase 1 は全種別 `config: {}` で追加する）。
+- **移動 / 選択**: ドラッグ移動、クリック選択、Selection Rectangle と Shift クリックによる複数選択。移動時は Snap to Grid を有効にする（**Snap to Grid は Phase 8**。Phase 1 では無効）。選択状態の保持場所は §2.4 を参照。
 - **削除**: 選択中の Node / Edge を Delete キー・Edit メニュー・Context Menu から削除する。Node 削除時は接続されている Edge も削除する。
 - **複製**: Ctrl+D / Context Menu。複製ノードは新 ID を採番し、元ノードから少しオフセットした位置へ配置する。設定値（`data`）を引き継ぐ。
 - **Copy / Paste**: Ctrl+C / Ctrl+V。選択中の Node（複数可）と、選択集合内で閉じている Edge をまとめて複製する。クリップボードはアプリ内メモリとする（OS クリップボード連携は（要確認））。
-- **ノード表示**: 各ノードは icon・node type・title・short description のみ表示し、詳細は Inspector に委ねる（FR-008）。Bundled Icons を使用する（NFR-004）。
+- **ノード表示**: 各ノードは icon・node type・title・short description のみ表示し、詳細は Inspector に委ねる（FR-008）。Bundled Icons を使用する（NFR-004）。**この表示仕様（Custom Node）は Phase 2**。Phase 1 は React Flow のデフォルトノードで `title` のみを表示する（mapper のシグネチャは変えず、`toReactFlow` の内部と `nodeTypes` 登録の差し替えで移行する。§2.4）。
 
 ### 5.2 接続バリデーション（FR-007）
 
