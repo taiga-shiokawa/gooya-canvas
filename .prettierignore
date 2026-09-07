@@ -1,0 +1,9 @@
+node_modules
+dist
+package-lock.json
+playwright-report
+test-results
+
+# Markdown は docs/ の永続的ドキュメントを含むため整形対象外とする
+# （表・図の手書きレイアウトを保つ）
+*.md

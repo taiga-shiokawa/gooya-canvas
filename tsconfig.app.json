@@ -8,6 +8,12 @@
     "allowArbitraryExtensions": true,
     "skipLibCheck": true,
 
+    /* パスエイリアス（docs/repository-structure.md §4.4）。
+       paths は tsconfig からの相対で解決する（baseUrl は TS 6 で非推奨）。 */
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+
     /* Bundler mode */
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
