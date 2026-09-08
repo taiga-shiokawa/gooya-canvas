@@ -1,6 +1,7 @@
 import { NodePalette, WorkflowCanvas } from '@/modules/canvas'
 import { Inspector } from '@/modules/inspector'
 import { AppHeader } from './AppHeader'
+import { AppRecoveryDialog } from './AppRecoveryDialog'
 import { AppStatusBar } from './AppStatusBar'
 
 // composition root。レイアウトの組み立てとポート具象の注入だけを行う
@@ -19,6 +20,7 @@ export function App() {
         <Inspector />
       </div>
       <AppStatusBar />
+      <AppRecoveryDialog />
     </div>
   )
 }

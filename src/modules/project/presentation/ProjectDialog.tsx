@@ -11,8 +11,16 @@ export type ProjectDialogState =
       title: string
       message: string
       confirmLabel: string
+      /** 副次ボタンの文言。既定は「キャンセル」。 */
+      cancelLabel?: string
       onConfirm: () => void
       onCancel: () => void
+      /**
+       * Esc で閉じたときの動作。既定は `onCancel`。
+       * 副次ボタンが破壊的（復旧データの破棄など）な場合に、
+       * 「Esc = 何もせず閉じる」を別に定義するために使う。
+       */
+      onDismiss?: () => void
     }
   | {
       kind: 'error'
@@ -41,7 +49,10 @@ export function ProjectDialog({ state }: ProjectDialogProps) {
 
   if (!state) return null
 
-  const dismiss = state.kind === 'confirm' ? state.onCancel : state.onClose
+  const dismiss =
+    state.kind === 'confirm'
+      ? (state.onDismiss ?? state.onCancel)
+      : state.onClose
 
   return (
     <dialog
@@ -71,7 +82,7 @@ export function ProjectDialog({ state }: ProjectDialogProps) {
               onClick={state.onCancel}
               className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500"
             >
-              キャンセル
+              {state.cancelLabel ?? 'キャンセル'}
             </button>
             <button
               type="button"
