@@ -22,6 +22,25 @@ export function isWorkflowNodeKind(value: string): value is WorkflowNodeKind {
   return (WORKFLOW_NODE_KINDS as readonly string[]).includes(value)
 }
 
+/** Prompt が想定する実装先 7 種（docs/glossary.md §5.1。リテラルは kebab-case）。 */
+export const PROMPT_TARGETS = [
+  'generic',
+  'google-apps-script',
+  'power-automate',
+  'cloudflare',
+  'azure',
+  'web-application',
+  'other',
+] as const
+
+export type PromptTarget = (typeof PROMPT_TARGETS)[number]
+
+export function isPromptTarget(value: string): value is PromptTarget {
+  return (PROMPT_TARGETS as readonly string[]).includes(value)
+}
+
+export type PromptLanguage = 'ja' | 'en'
+
 export type WorkflowPosition = {
   x: number
   y: number
@@ -52,4 +71,36 @@ export type WorkflowEdge = {
   data?: {
     description?: string
   }
+}
+
+export type WorkflowMetadata = {
+  id: string
+  name: string
+  description?: string
+  /** ISO 8601 */
+  createdAt: string
+  /** ISO 8601 */
+  updatedAt: string
+}
+
+export type WorkflowViewport = {
+  x: number
+  y: number
+  zoom: number
+}
+
+export type WorkflowPromptSettings = {
+  target?: PromptTarget
+  language?: PromptLanguage
+  additionalInstructions?: string
+}
+
+/** プロジェクト 1 件のルート構造。本システムの外部契約（docs/functional-design.md §12）。 */
+export type WorkflowProject = {
+  schemaVersion: string
+  metadata: WorkflowMetadata
+  viewport: WorkflowViewport
+  nodes: WorkflowNode[]
+  edges: WorkflowEdge[]
+  promptSettings?: WorkflowPromptSettings
 }

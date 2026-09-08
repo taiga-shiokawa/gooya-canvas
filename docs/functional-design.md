@@ -83,6 +83,7 @@ graph TD
 - **controlled flow の要点**: React Flow は `measured`（測定済みサイズ）や `selected` を、props で渡したノード／エッジ**オブジェクト自身**に保持する。そのため Domain の変更ごとに配列を作り直すと MiniMap が描画されないなどの不整合が起きる。これを避けるため、(a) Domain → React Flow の同期は store の `subscribe` で購読し `mergeReactFlow*` を通して適用する、(b) `onNodesChange` の `dimensions` 変更を `applyNodeChanges` で適用しないと `measured` が付かないため、同 handler で必ず適用する。
 - JSON 保存・Prompt 生成・Flow Review はすべて Domain Model を入力とし、React Flow の内部状態を直接読まない。
 - store が持つ UI 状態: `viewport` / `isDirty` / inspector・panel の開閉状態 / prompt settings。Undo / Redo 履歴は zundo で Node / Edge 配列のみを対象にする（§11）。
+- **dirty 判定規則**: `isDirty` を立てるのは `nodes` / `edges` / `metadata` / `promptSettings` の変更である。**`viewport` の変更と選択状態の変更では立てない**（Pan / Zoom のたびに未保存インジケータが点くのを避けるため。Viewport を Undo 履歴の対象外とする §11 の方針と一貫する）。`isDirty` を倒すのは、正式保存の成功時（§7.2）と、New / Open / Crash Recovery による store 復元時（§7.1 / §7.3 / §7.5）である。
 - **選択状態（選択中の Node / Edge）の所有者**: 選択状態は Domain Model ではないため store には持たせない。**Phase 1 は `canvas` の presentation（`WorkflowCanvas`）が React Flow の `nodes` / `edges` 配列上（各要素の `selected`）に保持する**。Inspector が選択ノードを参照する必要が生じる **Phase 3 で `shared` の store へ移す**（`selectedNodeIds` / `selectedEdgeId` として保持し、presentation は store を購読する）。移行時も React Flow 型は store へ出さず、ID のみを保持する。
 
 ## 3. データモデル定義
@@ -303,8 +304,9 @@ graph LR
 | end | 複数可 | 0（禁止） |
 | condition | 複数可 | 分岐（`branches` の数だけ Source Handle を持ち、各 Handle から 1 本以上接続可） |
 | dataSource / action / wait / humanTask / notification / ai / integration | 複数可 | 複数可 |
-| note | （要確認）— 初期要求に定義なし。当面は接続不可（純粋な注釈）として設計する | 同左 |
+| note | 0（禁止） | 0（禁止） |
 
+- **note は Handle 自体を描画せず、接続を試みることもできない**。Note は設計上の補足であり Workflow 処理に参加しない（`docs/glossary.md`）ため、フローの一部として接続させない。内容は Prompt へコメントとして出力する（FR-022, §9.2）。
 - 自分自身への接続（self-loop）は禁止する。
 - **Cycle は禁止しない**（Retry 等の Loop が業務上あり得るため）。到達不能や終了経路の欠如は接続時ではなく Flow Review が指摘する（§10）。
 

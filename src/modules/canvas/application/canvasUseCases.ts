@@ -1,8 +1,10 @@
 import { useWorkflowStore } from '@/modules/shared'
-import type {
-  WorkflowEdge,
-  WorkflowNodeKind,
-  WorkflowPosition,
+import {
+  canConnect,
+  createDefaultNodeData,
+  type WorkflowEdge,
+  type WorkflowNodeKind,
+  type WorkflowPosition,
 } from '@/modules/workflow'
 
 // store 更新の唯一の入口。presentation は store の setter を直接呼ばない。
@@ -11,7 +13,6 @@ import type {
 type AddNodeInput = {
   kind: WorkflowNodeKind
   position: WorkflowPosition
-  title: string
 }
 
 type ConnectNodesInput = {
@@ -29,8 +30,7 @@ export function addNode(input: AddNodeInput): void {
       id: crypto.randomUUID(),
       type: input.kind,
       position: input.position,
-      // 種別ごとの初期 config の投入は Phase 2〜3 のスコープ
-      data: { title: input.title, config: {} },
+      data: createDefaultNodeData(input.kind),
     },
   ])
 }
@@ -40,18 +40,36 @@ export function moveNode(id: string, position: WorkflowPosition): void {
   setNodes(nodes.map((node) => (node.id === id ? { ...node, position } : node)))
 }
 
-export function connectNodes(input: ConnectNodesInput): void {
-  // 自分自身への接続は禁止（docs/functional-design.md §5.2）。
-  // 種別ごとの接続ルールは Phase 2 で実装する。
-  if (input.source === input.target) return
+/** 接続の許否だけを問う（React Flow の isValidConnection 用）。store を変更しない。 */
+export function isConnectionAllowed(source: string, target: string): boolean {
+  const { nodes } = useWorkflowStore.getState()
+  return canConnect({
+    source: nodes.find((node) => node.id === source),
+    target: nodes.find((node) => node.id === target),
+  }).allowed
+}
 
-  const { edges, setEdges } = useWorkflowStore.getState()
+export function connectNodes(input: ConnectNodesInput): void {
+  const { nodes, edges, setEdges } = useWorkflowStore.getState()
+
+  const source = nodes.find((node) => node.id === input.source)
+  const target = nodes.find((node) => node.id === input.target)
+
+  // 種別ごとの接続ルール（FR-007 / docs/functional-design.md §5.2）。
+  // 不許可の接続は無言で作成しない。理由の UI 提示は Phase 3 以降で扱う。
+  if (!canConnect({ source, target }).allowed) return
+
   const edge: WorkflowEdge = {
     id: crypto.randomUUID(),
     source: input.source,
     target: input.target,
     sourceHandle: input.sourceHandle,
     targetHandle: input.targetHandle,
+    // Condition から出る Edge は分岐名を label の初期値にする（docs/functional-design.md §5.3）。
+    label:
+      source?.type === 'condition'
+        ? (input.sourceHandle ?? undefined)
+        : undefined,
   }
   setEdges([...edges, edge])
 }

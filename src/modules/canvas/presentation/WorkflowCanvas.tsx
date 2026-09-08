@@ -20,12 +20,13 @@ import { useCallback, useEffect, useState, type DragEvent } from 'react'
 import {
   addNode,
   connectNodes,
+  isConnectionAllowed,
   moveNode,
   removeEdges,
   removeNodes,
 } from '../application/canvasUseCases'
 import { NODE_KIND_DND_MIME } from './canvasDnd'
-import { nodeKindLabel } from './nodeKindLabels'
+import { workflowNodeTypes } from './nodes/workflowNodeTypes'
 import {
   fromReactFlowConnection,
   fromReactFlowIds,
@@ -86,6 +87,16 @@ function WorkflowCanvasInner() {
     connectNodes(fromReactFlowConnection(connection))
   }, [])
 
+  // ドラッグ中に不許可の接続先をハイライトさせない（FR-007）。
+  // 実際の作成可否は connectNodes 側の canConnect が最終判定する。
+  const handleIsValidConnection = useCallback(
+    (connection: Connection | Edge) => {
+      const { source, target } = fromReactFlowConnection(connection)
+      return isConnectionAllowed(source, target)
+    },
+    [],
+  )
+
   const handleNodesDelete = useCallback((deleted: Node[]) => {
     removeNodes(fromReactFlowIds(deleted))
   }, [])
@@ -110,11 +121,7 @@ function WorkflowCanvasInner() {
         x: event.clientX,
         y: event.clientY,
       })
-      addNode({
-        kind,
-        position: fromReactFlowPosition(position),
-        title: nodeKindLabel(kind),
-      })
+      addNode({ kind, position: fromReactFlowPosition(position) })
     },
     [screenToFlowPosition],
   )
@@ -128,9 +135,11 @@ function WorkflowCanvasInner() {
       <ReactFlow
         nodes={reactFlowNodes}
         edges={reactFlowEdges}
+        nodeTypes={workflowNodeTypes}
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
         onConnect={handleConnect}
+        isValidConnection={handleIsValidConnection}
         onNodesDelete={handleNodesDelete}
         onEdgesDelete={handleEdgesDelete}
         deleteKeyCode={['Delete', 'Backspace']}
