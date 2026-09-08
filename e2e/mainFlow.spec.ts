@@ -82,7 +82,7 @@ test('主要導線: New → Add → Connect → Edit → Save → Open → Gener
   await expect(sampleNodes.first()).toBeVisible()
   await expect(sampleNodes.last()).toBeVisible()
 
-  // 全体が収まる倍率まで引かれていること。サンプルは横に約 2400px 広がるので、
+  // 全体が収まる倍率まで引かれていること。サンプルは縦に約 1100px 伸びるので、
   // 測定前に fit すると実測 0 の矩形に合わせて最大倍率まで寄ってしまう
   const initialZoom = await page.evaluate(() => {
     const transform = document.querySelector<HTMLElement>(

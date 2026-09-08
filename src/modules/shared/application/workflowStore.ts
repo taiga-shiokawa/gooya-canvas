@@ -37,6 +37,21 @@ export type InspectorFocusRequest = {
   token: number
 }
 
+/**
+ * 「Workflow 全体が収まるように Canvas を合わせてほしい」という要求。
+ *
+ * テンプレート読込（New from Template）で使う。テンプレート JSON が持つ viewport は
+ * 作成時のペイン幅を前提にした固定値であり、狭いペインではノードが表示域の外へ出る。
+ * 正しい倍率は実際のペインの大きさに依存するので、倍率を決めるのは React Flow を持つ
+ * canvas 側に任せ、project はここへ「合わせてほしい」とだけ置く
+ * （project は @xyflow/react を import できない — repository-structure §5.1 #5）。
+ *
+ * Open Project は保存時の見え方を復元する仕様（§7.3）なのでこの要求を出さない。
+ */
+export type ViewportFitRequest = {
+  token: number
+}
+
 /** Domain Model のグラフ部分。nodes / edges を 1 回の更新でまとめて差し替えるときに使う。 */
 export type WorkflowGraphState = {
   nodes: WorkflowNode[]
@@ -65,6 +80,7 @@ export type WorkflowStoreState = {
   reviewFindings: readonly ReviewFinding[] | null
   nodeFocusRequest: NodeFocusRequest | null
   inspectorFocusRequest: InspectorFocusRequest | null
+  viewportFitRequest: ViewportFitRequest | null
 
   // --- 更新（各モジュールの application 層のユースケース経由で呼ぶ。presentation から直接呼ばない） ---
   setNodes: (nodes: WorkflowNode[]) => void
@@ -89,6 +105,8 @@ export type WorkflowStoreState = {
   requestNodeFocus: (nodeId: string) => void
   /** Context Menu の Edit から Inspector へフォーカスを要求する（FR-004 / §5.4）。 */
   requestInspectorFocus: () => void
+  /** Workflow 全体が収まるように Canvas を合わせるよう要求する（テンプレート読込）。 */
+  requestViewportFit: () => void
   /** New / Open / Crash Recovery の復元。dirty を倒し選択を解除し、履歴を空にする。 */
   replaceProject: (project: WorkflowProject) => void
   /** 正式保存の成功時に dirty を倒す（docs/functional-design.md §7.2）。 */
@@ -142,6 +160,7 @@ export const useWorkflowStore = create<WorkflowStoreState>()(
       reviewFindings: null,
       nodeFocusRequest: null,
       inspectorFocusRequest: null,
+      viewportFitRequest: null,
 
       setNodes: (nodes) => set({ nodes, isDirty: true }),
       setEdges: (edges) => set({ edges, isDirty: true }),
@@ -170,6 +189,12 @@ export const useWorkflowStore = create<WorkflowStoreState>()(
         set((state) => ({
           inspectorFocusRequest: {
             token: (state.inspectorFocusRequest?.token ?? 0) + 1,
+          },
+        })),
+      requestViewportFit: () =>
+        set((state) => ({
+          viewportFitRequest: {
+            token: (state.viewportFitRequest?.token ?? 0) + 1,
           },
         })),
 

@@ -1,6 +1,7 @@
 import type { ReviewFinding } from '@/modules/shared'
 import {
   NODE_CONFIG_KEYS,
+  NODE_KIND_REFERENCES,
   type WorkflowEdge,
   type WorkflowGraph,
   type WorkflowNode,
@@ -223,6 +224,24 @@ describe('RV-W02〜W05: 必須 Node 設定の欠落', () => {
     for (const rule of REQUIRED_CONFIG_RULES) {
       expect(NODE_CONFIG_KEYS[rule.kind]).toContain(rule.key)
     }
+  })
+
+  // Node Reference（workflow の domain）は「未設定だと Review が指摘」の印を持つ。
+  // その印がこのルール表と食い違うと、画面の説明と実際の指摘がずれる。
+  // workflow は review を import できないため、一致の検査は review 側に置く
+  // （.steering/20260908-abstract-templates-and-reference/design.md §2.2）。
+  it('Node Reference の required と対象キーが一致する', () => {
+    const fromRules = REQUIRED_CONFIG_RULES.map(
+      (rule) => `${rule.kind}.${rule.key}`,
+    ).sort()
+
+    const fromReference = NODE_KIND_REFERENCES.flatMap((reference) =>
+      reference.configKeys
+        .filter((entry) => entry.required)
+        .map((entry) => `${reference.kind}.${entry.key}`),
+    ).sort()
+
+    expect(fromReference).toEqual(fromRules)
   })
 
   /** t1 → target → e1 の直列に対象ノードを挟んだグラフ。 */
