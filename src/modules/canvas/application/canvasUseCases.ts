@@ -5,6 +5,7 @@ import {
   type WorkflowEdge,
   type WorkflowNodeKind,
   type WorkflowPosition,
+  type WorkflowViewport,
 } from '@/modules/workflow'
 
 // store 更新の唯一の入口。presentation は store の setter を直接呼ばない。
@@ -111,4 +112,12 @@ export function removeEdges(ids: readonly string[]): void {
   const removed = new Set(ids)
 
   setEdges(edges.filter((edge) => !removed.has(edge.id)))
+}
+
+/**
+ * Pan / Zoom の結果を store へ反映する。viewport はプロジェクトファイルへ保存される
+ * Domain の値だが、dirty は立てない（docs/functional-design.md §2.4）。
+ */
+export function updateViewport(viewport: WorkflowViewport): void {
+  useWorkflowStore.getState().setViewport(viewport)
 }
