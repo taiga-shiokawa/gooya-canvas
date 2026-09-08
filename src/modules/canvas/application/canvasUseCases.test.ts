@@ -12,10 +12,17 @@ import {
   moveNode,
   removeEdges,
   removeNodes,
+  selectElements,
 } from './canvasUseCases'
 
 function seed(nodes: WorkflowNode[], edges: WorkflowEdge[] = []) {
-  useWorkflowStore.setState({ nodes, edges, isDirty: false })
+  useWorkflowStore.setState({
+    nodes,
+    edges,
+    isDirty: false,
+    selectedNodeIds: [],
+    selectedEdgeId: null,
+  })
 }
 
 function node(
@@ -184,6 +191,50 @@ describe('removeNodes', () => {
     const { nodes, edges } = useWorkflowStore.getState()
     expect(nodes.map((n) => n.id)).toEqual(['b'])
     expect(edges).toHaveLength(0)
+  })
+})
+
+describe('selectElements', () => {
+  it('選択中の Node ID を store へ publish する', () => {
+    seed([node('a'), node('b')])
+
+    selectElements({ nodeIds: ['a', 'b'], edgeIds: [] })
+
+    expect(useWorkflowStore.getState().selectedNodeIds).toEqual(['a', 'b'])
+    expect(useWorkflowStore.getState().selectedEdgeId).toBeNull()
+  })
+
+  it('単一の Edge 選択は ID を publish する', () => {
+    seed([node('a'), node('b')], [edge('a-b', 'a', 'b')])
+
+    selectElements({ nodeIds: [], edgeIds: ['a-b'] })
+
+    expect(useWorkflowStore.getState().selectedEdgeId).toBe('a-b')
+  })
+
+  it('複数 Edge の選択は単一選択ではないので null にする', () => {
+    seed([node('a'), node('b')], [edge('a-b', 'a', 'b'), edge('b-a', 'b', 'a')])
+
+    selectElements({ nodeIds: [], edgeIds: ['a-b', 'b-a'] })
+
+    expect(useWorkflowStore.getState().selectedEdgeId).toBeNull()
+  })
+
+  it('選択解除を反映する', () => {
+    seed([node('a')])
+    selectElements({ nodeIds: ['a'], edgeIds: [] })
+
+    selectElements({ nodeIds: [], edgeIds: [] })
+
+    expect(useWorkflowStore.getState().selectedNodeIds).toEqual([])
+  })
+
+  it('選択では dirty を立てない', () => {
+    seed([node('a')], [edge('a-a', 'a', 'a')])
+
+    selectElements({ nodeIds: ['a'], edgeIds: ['a-a'] })
+
+    expect(useWorkflowStore.getState().isDirty).toBe(false)
   })
 })
 

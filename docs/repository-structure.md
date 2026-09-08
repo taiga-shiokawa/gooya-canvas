@@ -17,7 +17,7 @@ gooya-canvas/
 ├─ .steering/               # ステアリングファイル（タスク単位の作業記録。永続文書に複製しない）
 ├─ docs/                    # 永続的ドキュメント（本書を含む 7 文書体系）
 │  └─ ideas/                # 初期要求メモ等の一次情報
-├─ e2e/                     # Playwright E2E テスト（§6.1。Phase 5 で作成予定・未作成）
+├─ e2e/                     # Playwright E2E テスト（§6.1。`mainFlow.spec.ts` の 1 本）
 ├─ public/                  # Vite の静的公開ファイル（`favicon.svg` のみ。加工なしで配信されるもののみ）
 ├─ src/                     # アプリケーション本体（§2）
 ├─ index.html               # SPA のエントリ HTML（画面は 1 つ。architecture §4）
@@ -56,14 +56,17 @@ src/
    └─ shared/               # 複数モジュール共有（Zustand store 基盤・共通 UI・ユーティリティ）
 ```
 
-上表は 8 モジュールの**最終形**であり、ディレクトリを先に全部切ることはしない（空ディレクトリ禁止 — §2.1）。Phase 0〜2 完了時点で実在するのは次だけで、残りは担当フェーズの実装時に作成する（フェーズ対応は development-roadmap.md）:
+上表は 8 モジュールの**最終形**であり、ディレクトリを先に全部切ることはしない（空ディレクトリ禁止 — §2.1）。Phase 0〜5 完了時点で実在するのは次だけで、残りは担当フェーズの実装時に作成する（フェーズ対応は development-roadmap.md）:
 
-- `src/app/`（App シェル）、`src/main.tsx`、`src/index.css`
+- `src/app/`（App シェル + ポート具象の組み立て）、`src/main.tsx`、`src/index.css`
 - `src/modules/workflow/`: `domain/` + `index.ts`
 - `src/modules/canvas/`: `application/` + `presentation/`（`presentation/nodes/` に Custom Node 一式）+ `index.ts`
+- `src/modules/inspector/`: `application/` + `presentation/` + `index.ts`
+- `src/modules/project/`: `application/`（+ `ports/`）+ `infrastructure/` + `presentation/` + `assets/samples/` + `index.ts`
+- `src/modules/prompt/`: `domain/` + `application/`（+ `ports/`）+ `infrastructure/` + `presentation/` + `index.ts`
 - `src/modules/shared/`: `application/` + `index.ts`
 
-`inspector` / `project` / `export` / `prompt` / `review` の各モジュールディレクトリは未作成である。
+`export`（Phase 7）と `review`（Phase 6）の各モジュールディレクトリは未作成である。
 
 `presentation/` 配下は、部品数が増えた層に限りサブディレクトリで分類してよい（`canvas/presentation/nodes/` が該当）。サブディレクトリはレイヤーではないため、依存方向の制約（§5.1）は親の `presentation` として扱われる。
 
@@ -185,6 +188,8 @@ architecture §3.2 の 5 制約は `eslint.config.js` に**導入済み**で、`
 | `shared` | store のフック / selector、共通 UI 部品、純ユーティリティ |
 | 上記以外の 6 モジュール | composition root（`src/app/`）が組み立てに使う presentation コンポーネントと application service のみ。**他モジュールはこれらを import しない**（連携は workflow の Domain Model と shared の store を経由する） |
 
+**infrastructure 具象のファクトリは例外として公開してよい。** composition root が具象を生成して application service へ注入する構成（§5.3、AD-10）である以上、公開しないと組み立てられないため。深い import（`@/modules/<module>/infrastructure/...`）は禁止のままとし、`index.ts` からファクトリ関数だけを出す。公開してよいのはファクトリであり、ライブラリ固有の型を公開 API へ出さない点は変わらない。
+
 公開 API に React Flow 型・infrastructure 具象・ライブラリ固有型を含めない（architecture §3.3）。
 
 ## 6. テスト・サンプル・テンプレートの配置
@@ -196,7 +201,7 @@ architecture §3.2 の 5 制約は `eslint.config.js` に**導入済み**で、`
 | Unit（Vitest） | **ソース隣接（co-location）**: `<対象>.test.ts` / `<対象>.test.tsx` | 重点対象（Zod validation / serialization / migration / Prompt 生成 / Review ルール — architecture §6.1）は `domain/` の純関数隣接に置き、DOM モックなしで動くことを維持する |
 | E2E（Playwright） | リポジトリ直下 `e2e/` | 主要導線（New → Add → Connect → Edit → Save → Open → Generate Prompt）を最優先。Playwright 設定は `playwright.config.ts`（ルート） |
 
-Phase 2 完了時点の実績: Unit テストは co-location で 4 ファイル（`workflow/domain/` の `connectionRules.test.ts` / `nodeCatalog.test.ts`、`canvas/` の `application/canvasUseCases.test.ts` / `presentation/reactFlowMapper.test.ts`）。`e2e/` はまだ存在せず、Phase 5 で作成する。
+Phase 5 完了時点の実績: Unit テストは co-location で 12 ファイル（`workflow/domain/` に 5、`canvas/` に 2、`inspector/application/` に 1、`project/application/` に 3、`prompt/domain/` に 1）。E2E は `e2e/mainFlow.spec.ts` の 1 本で、主要導線（New → Add → Connect → Edit → Save → Open → Generate Prompt）を通す。
 
 `tests/` / `__tests__/` ディレクトリ方式は採用しない。テスト用フィクスチャが複数テストで共有される場合のみ `e2e/fixtures/`（E2E 用）または対象モジュール内 `__fixtures__/`（Unit 用）を置く。
 

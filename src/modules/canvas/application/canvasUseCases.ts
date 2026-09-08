@@ -5,6 +5,7 @@ import {
   type WorkflowEdge,
   type WorkflowNodeKind,
   type WorkflowPosition,
+  type WorkflowViewport,
 } from '@/modules/workflow'
 
 // store 更新の唯一の入口。presentation は store の setter を直接呼ばない。
@@ -20,6 +21,25 @@ type ConnectNodesInput = {
   target: string
   sourceHandle?: string
   targetHandle?: string
+}
+
+type SelectElementsInput = {
+  nodeIds: readonly string[]
+  edgeIds: readonly string[]
+}
+
+/**
+ * 選択状態を store へ publish する（docs/functional-design.md §2.4。Phase 3 で canvas から移管）。
+ * React Flow 型は持ち込まず ID のみを渡す（NFR-010）。選択では dirty を立てない（store 側で担保）。
+ * store は Edge を単数（selectedEdgeId）で持つため、複数 Edge の選択は「単一選択ではない」
+ * として null を publish する（Inspector は単一選択のときだけ編集させる）。
+ */
+export function selectElements(input: SelectElementsInput): void {
+  const { setSelection } = useWorkflowStore.getState()
+  setSelection({
+    nodeIds: input.nodeIds,
+    edgeId: input.edgeIds.length === 1 ? input.edgeIds[0] : null,
+  })
 }
 
 export function addNode(input: AddNodeInput): void {
@@ -92,4 +112,12 @@ export function removeEdges(ids: readonly string[]): void {
   const removed = new Set(ids)
 
   setEdges(edges.filter((edge) => !removed.has(edge.id)))
+}
+
+/**
+ * Pan / Zoom の結果を store へ反映する。viewport はプロジェクトファイルへ保存される
+ * Domain の値だが、dirty は立てない（docs/functional-design.md §2.4）。
+ */
+export function updateViewport(viewport: WorkflowViewport): void {
+  useWorkflowStore.getState().setViewport(viewport)
 }

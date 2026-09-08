@@ -92,6 +92,7 @@ npm scripts の定義一覧は `architecture.md` §5.1（npm scripts）・§5.2�
 - 設定は `.prettierrc` の 2 項目のみ（`semi: false` / `singleQuote: true`）。他はすべて Prettier 既定値に従い、**設定を増やさない**（printWidth 等を個別に調整しない）。
 - 実行は `npm run format`（適用）/ `npm run format:check`（差分検出）。**フォーマット済みでないコードをコミットしない**（§1）。
 - `.prettierignore` で `node_modules` / `dist` / `package-lock.json` / `playwright-report` / `test-results` に加え **`*.md` を除外**する。`docs/` の表・Mermaid 図の手書きレイアウトを保つため、Markdown は整形対象外であり手で整える。
+- **Windows で `core.autocrlf=true` の場合の注意**: Prettier は改行を LF に揃えるため、clone 直後（作業ツリーが CRLF）に `npm run format:check` が全ファイルで落ちる。`npm run format` を一度かけると解消するが、その直後は `git status` に無関係なファイルが並ぶ（`git diff` の実体は空なので commit には入らない）。恒久的に避けるなら `.gitattributes` に `* text=auto eol=lf` を置く。（未対応 — 対応時は本項を更新する）
 
 ## 5. テスト規約
 

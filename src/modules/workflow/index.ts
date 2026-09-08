@@ -1,10 +1,23 @@
 // workflow モジュールの公開 API（docs/repository-structure.md §5.4）。
 // Domain Model 型・ノード種別カタログ・接続ルール・migration 適用関数は全モジュールが import してよい。
 export {
+  addConditionBranch,
+  MIN_CONDITION_BRANCHES,
+  removeConditionBranch,
+  renameConditionBranch,
+  type WorkflowGraph,
+} from './domain/conditionBranchEditing'
+export {
   canConnect,
   type ConnectionCandidate,
   type ConnectionCheck,
 } from './domain/connectionRules'
+export {
+  migrateProject,
+  SCHEMA_MIGRATIONS,
+  type MigrateProjectResult,
+  type SchemaMigration,
+} from './domain/migrations'
 export {
   conditionBranches,
   createDefaultNodeData,
@@ -12,6 +25,19 @@ export {
   NODE_CONFIG_KEYS,
   nodeKindLabel,
 } from './domain/nodeCatalog'
+export {
+  promptLanguageSchema,
+  promptTargetSchema,
+  workflowEdgeSchema,
+  workflowMetadataSchema,
+  workflowNodeConfigSchema,
+  workflowNodeKindSchema,
+  workflowNodeSchema,
+  workflowPositionSchema,
+  workflowProjectSchema,
+  workflowPromptSettingsSchema,
+  workflowViewportSchema,
+} from './domain/schemas'
 export {
   isPromptTarget,
   isWorkflowNodeKind,

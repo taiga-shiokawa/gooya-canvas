@@ -13,7 +13,9 @@
 
 Phase 0 → 8 の順に実装する。並行可否は §2 を参照。
 
-**現在地**: Phase 0 / Phase 1 / Phase 2 は完了（Phase 0〜1: 2026-09-07、Phase 2: 2026-09-08）。次は Phase 3（Inspector）と Phase 4（Persistence）。この 2 つは §2 のとおり相互独立のため並行して進める。
+**現在地**: Phase 0 〜 Phase 5 は完了（Phase 0〜1: 2026-09-07、Phase 2〜5: 2026-09-08）。次は Phase 6（Flow Review）と Phase 7（Export）。この 2 つは §2 のとおり相互独立であり、順序を入れ替えてよい。
+
+主要導線の E2E（`e2e/mainFlow.spec.ts`）は Phase 5 で整備済みであり、以降は **main マージの継続条件**である。
 
 ### Phase 0 — Project Setup（完了）
 
@@ -59,19 +61,21 @@ React Flow 配置、Node 追加・移動・削除、Edge 接続・削除、Zoom 
 
 **完了条件**: FR-001, FR-007（残余）, FR-008 を満たすこと（初期要求メモ §43 は 8 種のみ列挙しているが、FR-001 の 11 種を正とする）
 
-### Phase 3 — Inspector
+### Phase 3 — Inspector（完了）
 
 Node Type ごとの設定 UI（Inspector）と Edge 設定。
 
 **完了条件**: AC-010, AC-011（FR-009, FR-010）
 
-### Phase 4 — Project Persistence
+### Phase 4 — Project Persistence（完了）
 
 Save Project / Open Project、Zod validation、Schema Migration、New Project、サンプルプロジェクト（Interview Evaluation Reminder）。
 
+**Crash Recovery（NFR-006 / functional-design §7.5）は本フェーズに含めなかった。** 完了条件に含まれず Phase 8 でも任意実装のため、`RecoveryStoragePort` は未作成である。
+
 **完了条件**: AC-012, AC-013, AC-014, AC-015（FR-011, FR-012, FR-013, FR-014, FR-015）
 
-### Phase 5 — Prompt Generator
+### Phase 5 — Prompt Generator（完了）
 
 Workflow Domain Model → Markdown の決定論的生成、Prompt Panel、Implementation Target 選択。
 

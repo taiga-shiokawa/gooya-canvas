@@ -3,8 +3,15 @@ import {
   type WorkflowEdge,
   type WorkflowNode,
   type WorkflowPosition,
+  type WorkflowViewport,
 } from '@/modules/workflow'
-import type { Connection, Edge, Node, XYPosition } from '@xyflow/react'
+import type {
+  Connection,
+  Edge,
+  Node,
+  Viewport,
+  XYPosition,
+} from '@xyflow/react'
 import type { WorkflowNodeCardData } from './nodes/workflowNodeCardData'
 
 // Domain Model と React Flow 型の相互変換（docs/repository-structure.md §4.3）。
@@ -162,4 +169,22 @@ export function fromReactFlowPosition(position: XYPosition): WorkflowPosition {
 
 export function fromReactFlowIds(items: readonly { id: string }[]): string[] {
   return items.map((item) => item.id)
+}
+
+// Viewport はプロジェクトファイルへ保存される Domain の値でもある（functional-design §3.2）。
+// 構造は同形だが、React Flow の型を canvas の外へ出さないため往復とも mapper を通す。
+
+export function fromReactFlowViewport(viewport: Viewport): WorkflowViewport {
+  return { x: viewport.x, y: viewport.y, zoom: viewport.zoom }
+}
+
+export function toReactFlowViewport(viewport: WorkflowViewport): Viewport {
+  return { x: viewport.x, y: viewport.y, zoom: viewport.zoom }
+}
+
+export function sameViewport(
+  a: WorkflowViewport,
+  b: WorkflowViewport,
+): boolean {
+  return a.x === b.x && a.y === b.y && a.zoom === b.zoom
 }
