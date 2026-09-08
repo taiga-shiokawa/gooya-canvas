@@ -1,12 +1,15 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './app/App'
-import { projectUseCases } from './app/ports'
+import { startupUseCases } from './app/ports'
 import './index.css'
 
-// 初回起動時（store が空）はサンプルを読み込んだ状態で開始する（FR-015 / §7.6）。
+// 起動時処理（§7.5 / §7.6）: 復旧データが無ければサンプルを読み込み（FR-015）、
+// dirty の間だけ localStorage へ自動保存する購読を開始する（NFR-006）。
 // render 前に済ませるので、Canvas の初期 fitView がサンプル全体に掛かる。
-projectUseCases.loadSampleProjectIfEmpty()
+// 復旧データがある場合はサンプルを読み込まず、復旧ダイアログ（AppRecoveryDialog）が
+// Restore / Discard を尋ねる。
+startupUseCases.start()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

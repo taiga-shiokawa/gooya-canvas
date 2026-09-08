@@ -8,8 +8,13 @@ import {
 } from '@/modules/export'
 import {
   createBrowserProjectFilePort,
+  createBrowserRecoveryStoragePort,
   createProjectUseCases,
+  createRecoveryUseCases,
+  createStartupUseCases,
   type ProjectUseCases,
+  type RecoveryUseCases,
+  type StartupUseCases,
 } from '@/modules/project'
 import {
   createBrowserClipboardPort,
@@ -47,4 +52,22 @@ export const exportUseCases: ExportUseCases = createExportUseCases({
   pdf: createJsPdfComposerPort(),
   file: createBrowserExportFilePort(),
   now: () => new Date(),
+})
+
+// Crash Recovery（NFR-006 / §7.5）。debounce のタイマーもブラウザ API なので
+// application へ直接持ち込まず、現在時刻と同じくここで注入する。
+export const recoveryUseCases: RecoveryUseCases = createRecoveryUseCases({
+  storage: createBrowserRecoveryStoragePort(),
+  now: () => new Date().toISOString(),
+  delay: (callback, delayMs) => {
+    const timer = setTimeout(callback, delayMs)
+    return () => clearTimeout(timer)
+  },
+})
+
+// 起動時処理（§7.5 / §7.6）。復旧データの有無でサンプル読込の要否が決まるため、
+// 判定順序は application が持ち、src/main.tsx は start() を呼ぶだけにする。
+export const startupUseCases: StartupUseCases = createStartupUseCases({
+  project: projectUseCases,
+  recovery: recoveryUseCases,
 })
