@@ -1,5 +1,12 @@
 import { nodeKindLabel, type WorkflowNodeKind } from '@/modules/workflow'
-import { Handle, Position, type Node, type NodeProps } from '@xyflow/react'
+import {
+  Handle,
+  Position,
+  useUpdateNodeInternals,
+  type Node,
+  type NodeProps,
+} from '@xyflow/react'
+import { useEffect } from 'react'
 import { NODE_KIND_ACCENT } from './nodeKindAccent'
 import { NodeKindIcon } from './nodeKindIcon'
 import type { WorkflowNodeCardData } from './workflowNodeCardData'
@@ -20,6 +27,7 @@ function sourceHandleOffset(index: number, count: number): string {
 }
 
 export function WorkflowNodeCard({
+  id,
   data,
   selected,
 }: NodeProps<WorkflowCardNode>) {
@@ -27,6 +35,16 @@ export function WorkflowNodeCard({
   const hasTarget = !KINDS_WITHOUT_TARGET.includes(data.kind)
   const hasSource = !KINDS_WITHOUT_SOURCE.includes(data.kind)
   const branches = data.kind === 'condition' ? data.branches : []
+
+  // Inspector から分岐を追加・削除・リネームすると Handle の id と位置が変わる。
+  // React Flow が handleBounds を再計算するのは type / handle position の変更と
+  // リサイズ検知時だけなので、分岐の変更は自分で通知しないと Edge が旧位置のまま描画される。
+  // 改行区切りで結合し、["A B"] と ["A","B"] を取り違えないようにする。
+  const updateNodeInternals = useUpdateNodeInternals()
+  const branchKey = branches.join('\n')
+  useEffect(() => {
+    updateNodeInternals(id)
+  }, [id, branchKey, updateNodeInternals])
 
   return (
     <div

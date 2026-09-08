@@ -24,6 +24,7 @@ import {
   moveNode,
   removeEdges,
   removeNodes,
+  selectElements,
 } from '../application/canvasUseCases'
 import { NODE_KIND_DND_MIME } from './canvasDnd'
 import { workflowNodeTypes } from './nodes/workflowNodeTypes'
@@ -97,6 +98,18 @@ function WorkflowCanvasInner() {
     [],
   )
 
+  // 選択状態は Inspector が参照するため store へ publish する（Phase 3 / §2.4）。
+  // React Flow が保持する配列上の selected はそのまま描画用に残し、store には ID だけを送る。
+  const handleSelectionChange = useCallback(
+    ({ nodes, edges }: { nodes: Node[]; edges: Edge[] }) => {
+      selectElements({
+        nodeIds: fromReactFlowIds(nodes),
+        edgeIds: fromReactFlowIds(edges),
+      })
+    },
+    [],
+  )
+
   const handleNodesDelete = useCallback((deleted: Node[]) => {
     removeNodes(fromReactFlowIds(deleted))
   }, [])
@@ -139,6 +152,7 @@ function WorkflowCanvasInner() {
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
         onConnect={handleConnect}
+        onSelectionChange={handleSelectionChange}
         isValidConnection={handleIsValidConnection}
         onNodesDelete={handleNodesDelete}
         onEdgesDelete={handleEdgesDelete}

@@ -1,6 +1,13 @@
 // workflow モジュールの公開 API（docs/repository-structure.md §5.4）。
 // Domain Model 型・ノード種別カタログ・接続ルール・migration 適用関数は全モジュールが import してよい。
 export {
+  addConditionBranch,
+  MIN_CONDITION_BRANCHES,
+  removeConditionBranch,
+  renameConditionBranch,
+  type WorkflowGraph,
+} from './domain/conditionBranchEditing'
+export {
   canConnect,
   type ConnectionCandidate,
   type ConnectionCheck,
