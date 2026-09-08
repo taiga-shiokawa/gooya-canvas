@@ -6,12 +6,31 @@ export {
   type ConnectionCheck,
 } from './domain/connectionRules'
 export {
+  migrateProject,
+  SCHEMA_MIGRATIONS,
+  type MigrateProjectResult,
+  type SchemaMigration,
+} from './domain/migrations'
+export {
   conditionBranches,
   createDefaultNodeData,
   DEFAULT_CONDITION_BRANCHES,
   NODE_CONFIG_KEYS,
   nodeKindLabel,
 } from './domain/nodeCatalog'
+export {
+  promptLanguageSchema,
+  promptTargetSchema,
+  workflowEdgeSchema,
+  workflowMetadataSchema,
+  workflowNodeConfigSchema,
+  workflowNodeKindSchema,
+  workflowNodeSchema,
+  workflowPositionSchema,
+  workflowProjectSchema,
+  workflowPromptSettingsSchema,
+  workflowViewportSchema,
+} from './domain/schemas'
 export {
   isPromptTarget,
   isWorkflowNodeKind,
