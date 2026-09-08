@@ -86,6 +86,16 @@ describe('WORKFLOW_TEMPLATES', () => {
       expect(template.json).not.toMatch(/https?:\/\//)
     }
   })
+
+  // BOM 付き UTF-8 で保存すると JSON.parse が落ち、実行時は「読み込めませんでした」
+  // ダイアログだけが出て原因がわからない。エディタや PowerShell の Set-Content が
+  // 付けてしまうことがあるため、ファイル先頭を明示的に検査する。
+  it('BOM で始まらない', () => {
+    for (const template of WORKFLOW_TEMPLATES) {
+      expect(template.json.charCodeAt(0)).not.toBe(0xfeff)
+      expect(template.json.trimStart().startsWith('{')).toBe(true)
+    }
+  })
 })
 
 describe('REFERENCE_TEMPLATE_ID', () => {

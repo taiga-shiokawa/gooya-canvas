@@ -14,6 +14,7 @@ export {
   useWorkflowStore,
   type InspectorFocusRequest,
   type NodeFocusRequest,
+  type ViewportFitRequest,
   type WorkflowGraphState,
   type WorkflowStoreState,
 } from './application/workflowStore'

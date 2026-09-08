@@ -1,4 +1,4 @@
-import { canvasEditCommands } from '@/modules/canvas'
+import { canvasEditCommands, NodeReferencePanel } from '@/modules/canvas'
 import { ExportDialog, useExportCommands } from '@/modules/export'
 import {
   ProjectDialog,
@@ -44,6 +44,7 @@ export function AppHeader() {
   )
   const [promptOpen, setPromptOpen] = useState(false)
   const [reviewOpen, setReviewOpen] = useState(false)
+  const [referenceOpen, setReferenceOpen] = useState(false)
 
   useAppShortcuts({
     saveProject: commands.saveProject,
@@ -91,6 +92,17 @@ export function AppHeader() {
       <nav className="flex items-center gap-1" aria-label="Main">
         <AppMenu label="File" items={fileItems} />
         <AppMenu label="Edit" items={editItems} />
+        {/*
+          Reference は項目を持たず直接パネルを開くため AppMenu ではなく素のボタン。
+          見た目は AppMenu のトリガーと揃える。
+        */}
+        <button
+          type="button"
+          onClick={() => setReferenceOpen(true)}
+          className="rounded px-2.5 py-1 text-sm text-slate-700 hover:bg-slate-100"
+        >
+          Reference
+        </button>
       </nav>
 
       <div className="ml-auto flex items-center gap-2">
@@ -116,6 +128,10 @@ export function AppHeader() {
 
       <ProjectDialog state={commands.dialog} />
       <TemplateGallery state={commands.templateGallery} />
+      <NodeReferencePanel
+        open={referenceOpen}
+        onClose={() => setReferenceOpen(false)}
+      />
       <ExportDialog state={exportCommands.dialog} />
       {promptOpen ? (
         <PromptPanel

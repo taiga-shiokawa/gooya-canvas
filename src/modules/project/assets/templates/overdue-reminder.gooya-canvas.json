@@ -2,335 +2,144 @@
   "schemaVersion": "1.0",
   "metadata": {
     "id": "6b93f04c-8e21-4d7a-b5c3-2f8a1e6d9057",
-    "name": "未対応者の督促（台帳 × 証跡の突合）",
-    "description": "台帳の対象者と「対応済みの証跡」を突合して未対応者を抽出し、冪等キーで二重通知を防いで Teams へ督促する。",
+    "name": "未対応者を見つけて督促",
+    "description": "対象の一覧と対応済みの記録を突き合わせ、未対応の人だけに通知する。提出・入力の督促の骨格。",
     "createdAt": "2026-09-08T00:00:00.000Z",
     "updatedAt": "2026-09-08T00:00:00.000Z"
   },
-  "viewport": { "x": 180, "y": 20, "zoom": 0.6 },
+  "viewport": { "x": 30, "y": 20, "zoom": 0.62 },
   "nodes": [
     {
-      "id": "note-about",
+      "id": "note-decisions",
       "type": "note",
-      "position": { "x": 1120, "y": 40 },
+      "position": { "x": 340, "y": 40 },
       "data": {
-        "title": "このテンプレートについて",
-        "description": "台帳 × 証跡の突合で未対応者を督促する",
+        "title": "決めておくこと",
         "config": {},
-        "notes": "「提出されていない人」「入力していない人」を検出して促す形の雛形です。要点は 2 つ — 対応済みの証跡をどこから取るか（Drive のファイル名 / 送信ログ / シートのチェック列）と、二重通知をどう防ぐか（冪等キー）。"
+        "notes": "・誰を対象にするか（絞り込みの条件）\n・「対応済み」を何で判断するか\n・いつから促すか（期限の何日前か）\n・同じ人へ何度まで送るか、二重送信をどう防ぐか\n・突合できなかったデータをどう扱うか\n・失敗したときリトライするか、実行ログをどこに残すか"
       }
     },
     {
-      "id": "note-dryrun",
-      "type": "note",
-      "position": { "x": 1120, "y": 340 },
-      "data": {
-        "title": "DRY_RUN を必ず用意する",
-        "config": {},
-        "notes": "調査した 23 案件のうち 17 件が本番送信とは別に「副作用のない手動確認経路」を持っていた。DRY_RUN フラグを立てるとログ出力だけで止まるようにし、本番の宛先へ飛ばす前に内容を目で確認する。"
-      }
-    },
-    {
-      "id": "trigger-daily",
+      "id": "trigger-schedule",
       "type": "trigger",
-      "position": { "x": 440, "y": 40 },
+      "position": { "x": 40, "y": 40 },
       "data": {
-        "title": "毎日の定時起動",
-        "description": "平日朝に起動して当日分を判定する",
+        "title": "定期実行",
+        "description": "毎日など決まったタイミングで起動する",
         "config": {
-          "system": "Google Apps Script（時間主導トリガー）",
-          "event": "毎日 8 時台"
-        },
-        "notes": "「毎日起こして日付条件で実行日を判定する」形にすると、特定の曜日・営業日・月末などの条件を後から変えやすい。トリガー登録関数は同ハンドラの既存トリガーを削除してから作成し、多重登録を防ぐ。"
+          "system": "スケジューラ",
+          "event": "決まった間隔での起動"
+        }
       }
     },
     {
-      "id": "cond-window",
-      "type": "condition",
-      "position": { "x": 440, "y": 220 },
-      "data": {
-        "title": "今日・今この時刻に送るか？",
-        "description": "休業日判定と送信時刻ゲート",
-        "config": { "branches": ["送る", "送らない"] },
-        "notes": "10 分間隔で起こして「18 時以降の最初の実行でだけ送る」という形も実案件で使われている。送信済みかどうかはログ側で判定するので、トリガー間隔は細かくしても安全。"
-      }
-    },
-    {
-      "id": "end-out-of-window",
-      "type": "end",
-      "position": { "x": 800, "y": 440 },
-      "data": {
-        "title": "この時刻は送らない",
-        "config": { "outcome": "Skipped（対象時刻外・休業日）" }
-      }
-    },
-    {
-      "id": "ds-ledger",
+      "id": "ds-targets",
       "type": "dataSource",
-      "position": { "x": 440, "y": 440 },
+      "position": { "x": 40, "y": 160 },
       "data": {
-        "title": "台帳から対象者一覧を取得",
-        "description": "稼働中・当月対象などの条件で絞る",
-        "config": { "provider": "Google Sheets" },
-        "notes": "列位置はヘッダー名から自動検出する。母集団を先に絞ってから明細を取ると、実行時間制限にも API レート制限にも当たりにくい。"
+        "title": "対象の一覧を取得",
+        "description": "誰に対応してもらう必要があるかを読む",
+        "config": { "provider": "台帳 / 名簿" }
       }
     },
     {
-      "id": "ds-evidence",
+      "id": "ds-records",
       "type": "dataSource",
-      "position": { "x": 440, "y": 620 },
+      "position": { "x": 40, "y": 280 },
       "data": {
-        "title": "対応済みの証跡を取得",
-        "description": "Drive のファイル名 / 送信ログ / チェック列",
-        "config": { "provider": "Google Drive" },
-        "notes": "「提出された PDF のファイル名を再帰的に集める」「送信ログを読む」「シートのチェック列を見る」のいずれか。Drive を再帰走査する場合はフォルダを配列に積んで幅優先で回す。フォルダが存在しないときは警告だけ出して正常終了させる（例外で落とすと毎朝エラーメールが飛ぶ）。"
+        "title": "対応済みの記録を取得",
+        "description": "すでに対応が済んでいる証跡を読む",
+        "config": { "provider": "提出物 / 入力済みデータ" }
       }
     },
     {
       "id": "act-match",
       "type": "action",
-      "position": { "x": 440, "y": 800 },
+      "position": { "x": 40, "y": 400 },
       "data": {
-        "title": "氏名を正規化して突合",
-        "config": {
-          "operation": "全角半角・スペース・中点を正規化し、部分一致で突き合わせる"
-        },
-        "notes": "第 1 パスは正規化後の部分一致。台帳とファイル名で表記が揺れるため、正規化は必須。"
+        "title": "突合して未対応を抽出",
+        "description": "一覧と記録を突き合わせ、残っている人を出す",
+        "config": { "operation": "対象と記録を突合し、未対応だけを残す" }
       }
     },
     {
-      "id": "cond-fuzzy",
+      "id": "cond-any",
       "type": "condition",
-      "position": { "x": 440, "y": 980 },
+      "position": { "x": 40, "y": 520 },
       "data": {
-        "title": "未一致を曖昧一致で救済するか？",
-        "config": { "branches": ["救済する", "救済しない"] },
-        "notes": "第 2 パスとして編集距離 1 の曖昧一致をかける方式が実案件にある。誤爆すると「提出済みの人を未提出扱いしない」代わりに「未提出の人を見逃す」ので、救済した件数は必ず通知に出して人間が確認できるようにする。複数候補が出た行は別枠にして自動判定しない。"
+        "title": "未対応があるか？",
+        "config": { "branches": ["ある", "ない"] }
       }
     },
     {
-      "id": "act-fuzzy",
-      "type": "action",
-      "position": { "x": 240, "y": 1220 },
-      "data": {
-        "title": "編集距離 1 で再突合し救済件数を記録",
-        "config": { "operation": "第 2 パスの曖昧一致。複数候補は別枠へ回す" }
-      }
-    },
-    {
-      "id": "act-report-unmatched",
-      "type": "action",
-      "position": { "x": 640, "y": 1220 },
-      "data": {
-        "title": "未一致として報告枠へ回す",
-        "config": { "operation": "突合できなかった行を別枠で報告する" }
-      }
-    },
-    {
-      "id": "act-threshold",
-      "type": "action",
-      "position": { "x": 440, "y": 1400 },
-      "data": {
-        "title": "期日までの残営業日で絞る",
-        "config": {
-          "operation": "期日まで N 営業日以内、または期限超過の未対応者を抽出する"
-        },
-        "notes": "「N 営」のような社内表記を日付へ変換する処理が必要になることが多い。祝日は Google カレンダー（ja.japanese#holiday）で判定できる。期日をパースできなかった行は捨てずに別枠で報告する。"
-      }
-    },
-    {
-      "id": "cond-already-sent",
-      "type": "condition",
-      "position": { "x": 440, "y": 1580 },
-      "data": {
-        "title": "冪等キーで既送信か？",
-        "config": { "branches": ["未送信", "既送信"] },
-        "notes": "冪等キーは「対象ID_基準日_通知種別」の形で組む（例: eventId_20260908_延長確認）。未回答リマインドを重ねる場合はキーに世代番号を足す。0 件は異常ではなく正常終了として扱う。"
-      }
-    },
-    {
-      "id": "end-already-sent",
+      "id": "end-none",
       "type": "end",
-      "position": { "x": 800, "y": 1800 },
+      "position": { "x": 340, "y": 700 },
       "data": {
-        "title": "重複通知を回避",
-        "config": { "outcome": "Skipped（既送信）" }
+        "title": "対象なし",
+        "config": { "outcome": "Completed（対象なし）" }
       }
     },
     {
-      "id": "cond-dryrun",
-      "type": "condition",
-      "position": { "x": 440, "y": 1800 },
-      "data": {
-        "title": "DRY_RUN か？",
-        "config": { "branches": ["本番送信", "DRY_RUN"] }
-      }
-    },
-    {
-      "id": "end-dryrun",
-      "type": "end",
-      "position": { "x": 800, "y": 2020 },
-      "data": {
-        "title": "ログ出力のみ",
-        "config": { "outcome": "Completed（DRY_RUN）" }
-      }
-    },
-    {
-      "id": "act-log-before",
-      "type": "action",
-      "position": { "x": 440, "y": 2020 },
-      "data": {
-        "title": "送信ログへ先に記録",
-        "config": { "operation": "冪等キーと宛先を送信前に書き込む" },
-        "notes": "送信してから記録すると、記録の直前で失敗したときに次回もう一度送ってしまう。先に記録しておけば、最悪「送れていないのに送信済み扱い」になるだけで二重通知は起きない。どちらのリスクを取るかを決めておくこと。"
-      }
-    },
-    {
-      "id": "int-relay",
-      "type": "integration",
-      "position": { "x": 440, "y": 2200 },
-      "data": {
-        "title": "Power Automate へ POST",
-        "description": "Teams 個人チャットへ送るための中継",
-        "config": { "system": "Power Automate" },
-        "notes": "個人宛の DM は Incoming Webhook では送れないため Power Automate を経由する。共有シークレットをヘッダーに載せて受け口側で検証する。宛先は自社ドメインのアドレスに限定する。"
-      }
-    },
-    {
-      "id": "notif-dm",
+      "id": "notif-remind",
       "type": "notification",
-      "position": { "x": 440, "y": 2380 },
+      "position": { "x": 40, "y": 700 },
       "data": {
-        "title": "担当者へ Teams で督促",
+        "title": "担当者へ督促する",
         "config": {
-          "provider": "Microsoft Teams（個人チャット）",
-          "recipient": "未対応の担当者",
-          "message": "期日が近づいています。対応をお願いします。",
-          "purpose": "未対応者への督促（1 通に集約）"
-        },
-        "notes": "宛先ごとにループして送る。1 人分の送信が失敗しても try/catch で続行し、残りの宛先には届くようにする。1 人に何通も飛ばさず、当日分を 1 通へ集約する。"
-      }
-    },
-    {
-      "id": "act-log-after",
-      "type": "action",
-      "position": { "x": 440, "y": 2560 },
-      "data": {
-        "title": "送信結果でログを更新",
-        "config": { "operation": "HTTP ステータスと失敗理由を書き戻す" },
-        "notes": "失敗したエラーの内容を残しておくと、宛先の設定ミスとネットワークの一時障害を後から切り分けられる。再試行は 429 / 5xx / タイムアウトのみ。"
+          "provider": "チャットツール / メール",
+          "recipient": "未対応の本人",
+          "message": "対応をお願いします",
+          "purpose": "未対応者への督促"
+        }
       }
     },
     {
       "id": "end-done",
       "type": "end",
-      "position": { "x": 440, "y": 2740 },
+      "position": { "x": 40, "y": 820 },
       "data": {
-        "title": "督促完了",
+        "title": "完了",
         "config": { "outcome": "Completed" }
       }
     }
   ],
   "edges": [
     {
-      "id": "e-trigger-window",
-      "source": "trigger-daily",
-      "target": "cond-window"
+      "id": "e-trigger-targets",
+      "source": "trigger-schedule",
+      "target": "ds-targets"
     },
     {
-      "id": "e-window-skip",
-      "source": "cond-window",
-      "target": "end-out-of-window",
-      "sourceHandle": "送らない",
-      "label": "送らない"
+      "id": "e-targets-records",
+      "source": "ds-targets",
+      "target": "ds-records"
     },
     {
-      "id": "e-window-go",
-      "source": "cond-window",
-      "target": "ds-ledger",
-      "sourceHandle": "送る",
-      "label": "送る"
-    },
-    {
-      "id": "e-ledger-evidence",
-      "source": "ds-ledger",
-      "target": "ds-evidence"
-    },
-    {
-      "id": "e-evidence-match",
-      "source": "ds-evidence",
+      "id": "e-records-match",
+      "source": "ds-records",
       "target": "act-match"
     },
-    { "id": "e-match-fuzzy", "source": "act-match", "target": "cond-fuzzy" },
+    { "id": "e-match-cond", "source": "act-match", "target": "cond-any" },
     {
-      "id": "e-fuzzy-yes",
-      "source": "cond-fuzzy",
-      "target": "act-fuzzy",
-      "sourceHandle": "救済する",
-      "label": "救済する"
+      "id": "e-cond-none",
+      "source": "cond-any",
+      "target": "end-none",
+      "sourceHandle": "ない",
+      "label": "ない"
     },
     {
-      "id": "e-fuzzy-no",
-      "source": "cond-fuzzy",
-      "target": "act-report-unmatched",
-      "sourceHandle": "救済しない",
-      "label": "救済しない"
+      "id": "e-cond-some",
+      "source": "cond-any",
+      "target": "notif-remind",
+      "sourceHandle": "ある",
+      "label": "ある"
     },
     {
-      "id": "e-fuzzy-threshold",
-      "source": "act-fuzzy",
-      "target": "act-threshold"
-    },
-    {
-      "id": "e-unmatched-threshold",
-      "source": "act-report-unmatched",
-      "target": "act-threshold"
-    },
-    {
-      "id": "e-threshold-sent",
-      "source": "act-threshold",
-      "target": "cond-already-sent"
-    },
-    {
-      "id": "e-sent-yes",
-      "source": "cond-already-sent",
-      "target": "end-already-sent",
-      "sourceHandle": "既送信",
-      "label": "既送信"
-    },
-    {
-      "id": "e-sent-no",
-      "source": "cond-already-sent",
-      "target": "cond-dryrun",
-      "sourceHandle": "未送信",
-      "label": "未送信"
-    },
-    {
-      "id": "e-dryrun-yes",
-      "source": "cond-dryrun",
-      "target": "end-dryrun",
-      "sourceHandle": "DRY_RUN",
-      "label": "DRY_RUN"
-    },
-    {
-      "id": "e-dryrun-no",
-      "source": "cond-dryrun",
-      "target": "act-log-before",
-      "sourceHandle": "本番送信",
-      "label": "本番送信"
-    },
-    {
-      "id": "e-logbefore-relay",
-      "source": "act-log-before",
-      "target": "int-relay"
-    },
-    { "id": "e-relay-notify", "source": "int-relay", "target": "notif-dm" },
-    {
-      "id": "e-notify-logafter",
-      "source": "notif-dm",
-      "target": "act-log-after"
-    },
-    { "id": "e-logafter-end", "source": "act-log-after", "target": "end-done" }
+      "id": "e-notify-end",
+      "source": "notif-remind",
+      "target": "end-done"
+    }
   ],
   "promptSettings": { "target": "google-apps-script", "language": "ja" }
 }

@@ -86,6 +86,9 @@ function selectAllNodesMeasured(state: ReactFlowState): boolean {
   return true
 }
 
+/** fit 要求を諦めるまでのフレーム数（約 0.5 秒）。測定が終わらない環境で回り続けさせない。 */
+const FIT_RETRY_MAX_FRAMES = 30
+
 /** Review 結果クリックでの移動アニメーション時間（ms）。一瞬で飛ぶと位置関係を見失うため。 */
 const FOCUS_DURATION_MS = 300
 
@@ -195,6 +198,15 @@ function WorkflowCanvasInner() {
   // 何も合わせない（最初のノードを置いた瞬間に画面が跳ねるのを避ける）。
   const shouldFitOnMount = useRef(reactFlowNodes.length > 0)
 
+  // store 経由の fit 要求（テンプレート読込）。token を state に持つのは、
+  // 要求を受けた時点でまだノードの測定が済んでいないことがあり、
+  // 「測定が揃ったら合わせる」を effect の依存で待ち合わせる必要があるため。
+  const initialFitToken =
+    useWorkflowStore.getState().viewportFitRequest?.token ?? 0
+  const publishedFitToken = useRef(initialFitToken)
+  const [fitToken, setFitToken] = useState(initialFitToken)
+  const fittedToken = useRef(initialFitToken)
+
   // Export 用表示（§8.3 / AC-018）。Handle・選択枠・MiniMap・Controls・Grid を落とす。
   // viewport には触れないので、onMoveEnd 経由で store が汚れることはない。
   const [exportMode, setExportMode] = useState(false)
@@ -226,6 +238,14 @@ function WorkflowCanvasInner() {
           shouldFitOnMount.current = false
           setViewport(toReactFlowViewport(state.viewport))
         }
+
+        // fit 要求は viewport の復元より後に見る。テンプレート読込は viewport の
+        // 差し替えと fit 要求を同時に起こすので、後から来た fit で上書きさせる
+        const requested = state.viewportFitRequest?.token ?? 0
+        if (requested !== publishedFitToken.current) {
+          publishedFitToken.current = requested
+          setFitToken(requested)
+        }
       }),
     [setViewport],
   )
@@ -238,17 +258,59 @@ function WorkflowCanvasInner() {
   // そこで prop は残したまま、測定が揃った時点で 1 度だけ合わせ直す。
   const allNodesMeasured = useStore(selectAllNodesMeasured)
 
-  useEffect(() => {
-    if (!shouldFitOnMount.current || !allNodesMeasured) return
-    shouldFitOnMount.current = false
-
+  const fitAndPublish = useCallback(() => {
     void fitView().then(() => {
       // 合わせた結果を store にも反映し、保存内容と画面を一致させる
       const next = fromReactFlowViewport(getViewport())
       publishedViewport.current = next
       updateViewport(next)
     })
-  }, [allNodesMeasured, fitView, getViewport])
+  }, [fitView, getViewport])
+
+  useEffect(() => {
+    if (!shouldFitOnMount.current || !allNodesMeasured) return
+    shouldFitOnMount.current = false
+    fitAndPublish()
+  }, [allNodesMeasured, fitAndPublish])
+
+  // store 経由の fit 要求（テンプレート読込）。
+  //
+  // Workflow を差し替えた直後は React Flow の内部ストアがまだ前のノードを持っており、
+  // `selectAllNodesMeasured` は「全部測れている」と答えてしまう。そこで effect の依存では
+  // 待ち合わせず、公開 API の `getNodes()` を毎フレーム見て**新しいノードすべての測定**が
+  // 揃うのを待つ。上限を切って回り続けさせない。
+  useEffect(() => {
+    if (fittedToken.current === fitToken) return
+    fittedToken.current = fitToken
+
+    let cancelled = false
+    let frames = 0
+
+    const tryFit = () => {
+      if (cancelled) return
+
+      // 1 つでも未測定のノードがあるうちに合わせると、実寸 0 を含む矩形へ
+      // 寄せてしまい最大倍率までズームインした状態で止まる。全ノードが揃うまで待つ。
+      const nodes = getNodes()
+      const allMeasured =
+        nodes.length > 0 &&
+        nodes.every((node) => node.measured?.width && node.measured.height)
+
+      if (allMeasured) {
+        fitAndPublish()
+        return
+      }
+
+      frames += 1
+      if (frames < FIT_RETRY_MAX_FRAMES) requestAnimationFrame(tryFit)
+    }
+
+    requestAnimationFrame(tryFit)
+
+    return () => {
+      cancelled = true
+    }
+  }, [fitAndPublish, fitToken, getNodes])
 
   // --- Export（Phase 7）への受け渡し（./canvasExportSource.ts の説明を参照） ---
 

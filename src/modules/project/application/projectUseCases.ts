@@ -105,6 +105,10 @@ export function createProjectUseCases(
       if (!result.ok) return false
 
       replaceWith(result.project)
+      // テンプレート JSON の viewport は作成時のペイン幅を前提にした固定値なので、
+      // そのまま復元すると狭いペインでノードが表示域の外へ出る。実際のペインに
+      // 合わせるのは canvas の役目なので、要求だけ置く（ViewportFitRequest の説明を参照）。
+      useWorkflowStore.getState().requestViewportFit()
       return true
     },
 

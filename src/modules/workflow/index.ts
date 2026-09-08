@@ -31,6 +31,13 @@ export {
   nodeKindLabel,
 } from './domain/nodeCatalog'
 export {
+  CONNECTION_RULES,
+  findNodeKindReference,
+  NODE_KIND_REFERENCES,
+  type NodeConfigKeyReference,
+  type NodeKindReference,
+} from './domain/nodeReference'
+export {
   promptLanguageSchema,
   promptTargetSchema,
   workflowEdgeSchema,

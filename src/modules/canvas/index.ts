@@ -11,4 +11,8 @@ export {
   type CanvasExportSource,
 } from './presentation/canvasExportSource'
 export { NodePalette } from './presentation/NodePalette'
+export {
+  NodeReferencePanel,
+  type NodeReferencePanelProps,
+} from './presentation/NodeReferencePanel'
 export { WorkflowCanvas } from './presentation/WorkflowCanvas'

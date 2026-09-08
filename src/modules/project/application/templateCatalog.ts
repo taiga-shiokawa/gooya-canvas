@@ -54,9 +54,9 @@ export type WorkflowTemplate = {
 export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
   {
     id: 'scheduled-report-teams',
-    name: '定期バッチ集計 → Teams カード通知',
+    name: '定期集計してレポートを通知',
     description:
-      '時間主導トリガーで台帳を集計し、前回比つきの Adaptive Card を Teams へ配信する。営業日判定・多重実行ガード・配信ログを含む。',
+      '決まった間隔でデータを集計し、結果をチームへ通知する。日次・週次のレポート配信の骨格。',
     category: 'notification',
     target: 'google-apps-script',
     sourceCount: 9,
@@ -64,9 +64,9 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
   },
   {
     id: 'overdue-reminder',
-    name: '未対応者の督促（台帳 × 証跡の突合）',
+    name: '未対応者を見つけて督促',
     description:
-      '台帳の対象者と「対応済みの証跡」を突合して未対応者を抽出し、冪等キーで二重通知を防いで Teams へ督促する。',
+      '対象の一覧と対応済みの記録を突き合わせ、未対応の人だけに通知する。提出・入力の督促の骨格。',
     category: 'notification',
     target: 'google-apps-script',
     sourceCount: 4,
@@ -86,9 +86,9 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
   },
   {
     id: 'chat-search-bot',
-    name: 'チャット起点 自然文検索 → 出典付き回答',
+    name: 'チャットから自然文で検索',
     description:
-      'Teams の発話から検索条件を LLM が構造化し、決定論的にフィルタして上位 N 件を出典つきで返す。絞り込みを LLM に任せない構成。',
+      'チャットの問い合わせから条件を読み取り、データを検索して結果を返す。台帳の照会を会話でできるようにする骨格。',
     category: 'search',
     target: 'power-automate',
     sourceCount: 5,
@@ -96,9 +96,9 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
   },
   {
     id: 'llm-extract-approve',
-    name: 'LLM 抽出 → 人の確認 → 承認後だけ反映',
+    name: 'AI が読み取り、人が承認して反映',
     description:
-      'テキストから LLM が項目を構造化抽出し、担当者が承認した場合のみシステムへ反映する。自動保存・自動送信をしない安全境界つき。',
+      'テキストから AI に項目を読み取らせ、担当者が確認して承認したときだけシステムへ反映する。AI の出力を業務データに入れる前に人を挟む骨格。',
     category: 'ai',
     target: 'generic',
     sourceCount: 3,
