@@ -29,6 +29,7 @@ import {
   removeEdges,
   removeNodes,
   selectElements,
+  subscribeNodeFocusRequests,
   updateViewport,
 } from '../application/canvasUseCases'
 import { NODE_KIND_DND_MIME } from './canvasDnd'
@@ -64,6 +65,27 @@ function selectAllNodesMeasured(state: ReactFlowState): boolean {
     if (!node.measured?.width) return false
   }
   return true
+}
+
+/** Review 結果クリックでの移動アニメーション時間（ms）。一瞬で飛ぶと位置関係を見失うため。 */
+const FOCUS_DURATION_MS = 300
+
+/**
+ * 指定 ID だけを選択した状態にする。`mergeReactFlow*` と同じく、変化が無ければ
+ * 同一参照を返して React Flow の描画用フィールドを壊さない（§2.4 の controlled flow）。
+ */
+function withSelection<T extends { id: string; selected?: boolean }>(
+  items: T[],
+  selectedId: string | null,
+): T[] {
+  let changed = false
+  const next = items.map((item) => {
+    const selected = item.id === selectedId
+    if ((item.selected ?? false) === selected) return item
+    changed = true
+    return { ...item, selected }
+  })
+  return changed ? next : items
 }
 
 /** 描画フレームを待つときの打ち切り時間（ms）。 */
@@ -110,8 +132,11 @@ function WorkflowCanvasInner() {
     setViewport,
     getViewport,
     fitView,
+    getNode,
     getNodes,
     getNodesBounds,
+    getZoom,
+    setCenter,
   } = useReactFlow()
 
   const [reactFlowNodes, setReactFlowNodes] = useState<Node[]>(
@@ -244,6 +269,29 @@ function WorkflowCanvasInner() {
         beginExportView,
       }),
     [beginExportView, getCaptureTarget, getContentBounds],
+  )
+
+  // Review Panel の問題クリック → 該当 Node を選択して Canvas 中央へ（FR-024 / §10.3）。
+  // 要求は store 経由で届く。React Flow を触れるのは canvas だけなので、選択の反映
+  // （描画用の selected）とセンタリングはここで行う。
+  useEffect(
+    () =>
+      subscribeNodeFocusRequests((nodeId) => {
+        setReactFlowNodes((previous) => withSelection(previous, nodeId))
+        setReactFlowEdges((previous) => withSelection(previous, null))
+        if (!getNode(nodeId)) return
+
+        // 中心座標は getNodesBounds から取る。getNode が返すノードには実測サイズ
+        // （measured）が付いておらず、自前で中心を計算するとノード半個ぶんずれる。
+        // zoom は現在値のままにし、倍率を変えずに位置だけ合わせる。
+        const bounds = getNodesBounds([nodeId])
+        void setCenter(
+          bounds.x + bounds.width / 2,
+          bounds.y + bounds.height / 2,
+          { zoom: getZoom(), duration: FOCUS_DURATION_MS },
+        )
+      }),
+    [getNode, getNodesBounds, getZoom, setCenter],
   )
 
   const handleMoveEnd = useCallback((_event: unknown, viewport: Viewport) => {

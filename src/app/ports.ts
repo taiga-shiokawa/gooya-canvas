@@ -16,6 +16,7 @@ import {
   createPromptUseCases,
   type PromptUseCases,
 } from '@/modules/prompt'
+import { createReviewUseCases, type ReviewUseCases } from '@/modules/review'
 
 // composition root の配線（docs/repository-structure.md §5.3、AD-10）。
 // ポート具象を生成して application service へ束ねるのはここだけの特権であり、
@@ -30,6 +31,10 @@ export const projectUseCases: ProjectUseCases = createProjectUseCases({
 export const promptUseCases: PromptUseCases = createPromptUseCases({
   clipboard: createBrowserClipboardPort(),
 })
+
+// Flow Review（Phase 6）。外部依存（ポート）を持たないが、他のユースケースと同じく
+// composition root で 1 インスタンスだけ組み立てて presentation へ渡す。
+export const reviewUseCases: ReviewUseCases = createReviewUseCases()
 
 // Export（Phase 7）。@xyflow/react と Canvas の DOM に依存する部分は canvas モジュールが持ち
 // （repository-structure §5.1 #5）、export はそれをポートとして受け取る。
