@@ -1,6 +1,10 @@
 import { canvasEditCommands } from '@/modules/canvas'
 import { ExportDialog, useExportCommands } from '@/modules/export'
-import { ProjectDialog, useProjectCommands } from '@/modules/project'
+import {
+  ProjectDialog,
+  TemplateGallery,
+  useProjectCommands,
+} from '@/modules/project'
 import { PromptPanel } from '@/modules/prompt'
 import { ReviewPanel } from '@/modules/review'
 import {
@@ -48,6 +52,7 @@ export function AppHeader() {
 
   const fileItems: AppMenuItem[] = [
     { label: 'New', onSelect: commands.newProject },
+    { label: 'New from Template', onSelect: commands.newFromTemplate },
     { label: 'Open Project', onSelect: commands.openProject },
     { label: 'Save Project', onSelect: commands.saveProject },
     {
@@ -110,6 +115,7 @@ export function AppHeader() {
       </div>
 
       <ProjectDialog state={commands.dialog} />
+      <TemplateGallery state={commands.templateGallery} />
       <ExportDialog state={exportCommands.dialog} />
       {promptOpen ? (
         <PromptPanel

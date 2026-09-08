@@ -1,6 +1,6 @@
 import { SCHEMA_VERSION, type WorkflowProject } from '@/modules/workflow'
 import { describe, expect, it } from 'vitest'
-import sampleProjectJson from '../assets/samples/interview-evaluation-reminder.gooya-canvas.json?raw'
+import sampleProjectJson from '../assets/templates/interview-evaluation-reminder.gooya-canvas.json?raw'
 import { deserializeProject, serializeProject } from './projectSerialization'
 
 // Unit テストの重点対象 2 位「serialization / deserialization」

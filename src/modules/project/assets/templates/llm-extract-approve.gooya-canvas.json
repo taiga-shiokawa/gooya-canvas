@@ -1,0 +1,253 @@
+{
+  "schemaVersion": "1.0",
+  "metadata": {
+    "id": "2e8b6f37-c150-4a29-9d84-5b1f7c3a2e90",
+    "name": "LLM 抽出 → 人の確認 → 承認後だけ反映",
+    "description": "テキストから LLM が項目を構造化抽出し、担当者が確認して承認した場合のみシステムへ反映する。自動保存・自動送信をしない安全境界つき。",
+    "createdAt": "2026-09-08T00:00:00.000Z",
+    "updatedAt": "2026-09-08T00:00:00.000Z"
+  },
+  "viewport": { "x": 180, "y": 20, "zoom": 0.6 },
+  "nodes": [
+    {
+      "id": "note-about",
+      "type": "note",
+      "position": { "x": 1120, "y": 40 },
+      "data": {
+        "title": "このテンプレートについて",
+        "description": "AI の出力を人が承認してから反映する",
+        "config": {},
+        "notes": "商談の文字起こし・問い合わせメール・案件票などから項目を抜き出して業務システムへ入れる形の雛形です。設計の芯は「AI に書き込ませない」— 抽出と提示までを AI が行い、確定は人が押したときだけ行う。"
+      }
+    },
+    {
+      "id": "note-boundary",
+      "type": "note",
+      "position": { "x": 1120, "y": 340 },
+      "data": {
+        "title": "安全境界を先に決める",
+        "config": {},
+        "notes": "AI が書き換えてよい項目を明示的に限定する。実案件では「AI 用のカスタム項目だけを更新し、標準の進捗ステージ・確度・完了予定日は絶対に自動更新しない」という境界を引いた。顧客への送信も行わない（文面は下書きまで）。この境界があるので誤抽出が業務事故にならない。"
+      }
+    },
+    {
+      "id": "note-ops",
+      "type": "note",
+      "position": { "x": 1120, "y": 700 },
+      "data": {
+        "title": "失敗・重複・ログの扱い",
+        "config": {},
+        "notes": "認証情報は Named Credential / Key Vault などでコード外に置く。API 失敗は 429 / 5xx / タイムアウトのみリトライし、401 / 403 は再試行せずエスカレーションする。同じレコードに対する二重実行は「既に AI 項目が埋まっているか」で冪等に判定する。誰がいつ承認したかを監査ログに残す。"
+      }
+    },
+    {
+      "id": "trigger-action",
+      "type": "trigger",
+      "position": { "x": 440, "y": 40 },
+      "data": {
+        "title": "担当者がボタンを押す",
+        "description": "レコード画面のアクションから手動起動する",
+        "config": {
+          "system": "業務システム（レコード画面のクイックアクション）",
+          "event": "担当者が「AI で抽出」を押した"
+        },
+        "notes": "このパターンは手動起動が正しい。自動で走らせると、担当者が結果を見ていないまま項目が埋まる。"
+      }
+    },
+    {
+      "id": "ds-record",
+      "type": "dataSource",
+      "position": { "x": 440, "y": 220 },
+      "data": {
+        "title": "レコードと関連データを取得",
+        "description": "対象レコードと参照先をまとめて読む",
+        "config": { "provider": "業務システム（CRM / 台帳）" },
+        "notes": "プロンプトに載せる範囲を決めておく。全件・全列を渡すとトークンが膨らむ（573 行の全列で推定 35 万トークンになった実例がある）。候補を先に絞ってから渡す。"
+      }
+    },
+    {
+      "id": "cond-has-input",
+      "type": "condition",
+      "position": { "x": 440, "y": 400 },
+      "data": {
+        "title": "入力テキストがあるか？",
+        "config": { "branches": ["ある", "ない"] },
+        "notes": "空のまま LLM を呼ぶと、もっともらしい嘘が返ってくる。呼ぶ前に止めるのが最も安いガード。"
+      }
+    },
+    {
+      "id": "end-no-input",
+      "type": "end",
+      "position": { "x": 800, "y": 620 },
+      "data": {
+        "title": "AI を実行せず停止",
+        "config": { "outcome": "Aborted（入力なし）" }
+      }
+    },
+    {
+      "id": "act-prompt",
+      "type": "action",
+      "position": { "x": 440, "y": 620 },
+      "data": {
+        "title": "プロンプトを組み立てる",
+        "config": {
+          "operation": "対象テキストと関連データを、抽出したい項目の定義と一緒に組む"
+        },
+        "notes": "出力してほしい項目を列挙し、それぞれの型と「該当なしのときの値」を明示する。自由記述の指示より、項目定義を並べるほうが安定する。"
+      }
+    },
+    {
+      "id": "ai-extract",
+      "type": "ai",
+      "position": { "x": 440, "y": 800 },
+      "data": {
+        "title": "構造化抽出",
+        "config": {
+          "task": "テキストから所定の項目を抽出して構造化データで返す",
+          "input": "対象テキストと関連レコード",
+          "expectedOutput": "項目名と値の JSON。値が読み取れない項目は null",
+          "constraints": "明記されていないことを推測しない。断定の根拠になる列を限定する"
+        },
+        "notes": "「明記なしは null・推測禁止」を必ず入れる。これを書かないと空欄を埋めようとして捏造する。資格や実績のように断定が重い項目は、根拠にしてよいデータ列を明示的に限定する（誤断定の実例あり）。"
+      }
+    },
+    {
+      "id": "act-validate",
+      "type": "action",
+      "position": { "x": 440, "y": 980 },
+      "data": {
+        "title": "スキーマ検証・許可リスト検査",
+        "config": {
+          "operation": "型と必須項目を検証し、想定外の値を弾く"
+        },
+        "notes": "LLM の出力を信頼せず、スキーマ検証と許可リストと範囲検証を通す。検証に失敗したら人に見せる前に止めるか、失敗した項目だけを空にして残りを見せる（どちらにするかを決めておく）。"
+      }
+    },
+    {
+      "id": "human-review",
+      "type": "humanTask",
+      "position": { "x": 440, "y": 1160 },
+      "data": {
+        "title": "担当者が抽出結果を確認",
+        "config": {
+          "role": "レコードの担当者",
+          "action": "抽出された各項目を見て、必要なら修正する",
+          "expectedResult": "承認または却下の意思表示"
+        },
+        "notes": "画面には抽出結果とあわせて元テキストの該当箇所を出す。確認せず承認を押せる UI にしないこと。"
+      }
+    },
+    {
+      "id": "cond-approved",
+      "type": "condition",
+      "position": { "x": 440, "y": 1340 },
+      "data": {
+        "title": "承認されたか？",
+        "config": { "branches": ["承認", "却下"] }
+      }
+    },
+    {
+      "id": "end-rejected",
+      "type": "end",
+      "position": { "x": 800, "y": 1580 },
+      "data": {
+        "title": "何も更新しない",
+        "config": { "outcome": "Rejected（承認されなかった）" }
+      }
+    },
+    {
+      "id": "act-apply",
+      "type": "action",
+      "position": { "x": 440, "y": 1580 },
+      "data": {
+        "title": "AI 用項目のみ更新",
+        "config": {
+          "operation": "許可された項目だけを書き込む。標準項目は触らない"
+        },
+        "notes": "書き込み権限をこのステップ 1 箇所に集める。画面側やトピック側から直接更新できる経路を作らないこと（状態遷移の実行主体が分散すると追えなくなる）。"
+      }
+    },
+    {
+      "id": "notif-result",
+      "type": "notification",
+      "position": { "x": 440, "y": 1760 },
+      "data": {
+        "title": "更新結果を担当者へ通知",
+        "config": {
+          "provider": "Microsoft Teams",
+          "recipient": "レコードの担当者",
+          "message": "抽出結果を反映しました。更新した項目をご確認ください。",
+          "purpose": "反映内容の確認依頼"
+        }
+      }
+    },
+    {
+      "id": "end-applied",
+      "type": "end",
+      "position": { "x": 440, "y": 1940 },
+      "data": {
+        "title": "反映完了",
+        "config": { "outcome": "Completed" }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-trigger-record",
+      "source": "trigger-action",
+      "target": "ds-record"
+    },
+    {
+      "id": "e-record-hasinput",
+      "source": "ds-record",
+      "target": "cond-has-input"
+    },
+    {
+      "id": "e-hasinput-no",
+      "source": "cond-has-input",
+      "target": "end-no-input",
+      "sourceHandle": "ない",
+      "label": "ない"
+    },
+    {
+      "id": "e-hasinput-yes",
+      "source": "cond-has-input",
+      "target": "act-prompt",
+      "sourceHandle": "ある",
+      "label": "ある"
+    },
+    { "id": "e-prompt-ai", "source": "act-prompt", "target": "ai-extract" },
+    { "id": "e-ai-validate", "source": "ai-extract", "target": "act-validate" },
+    {
+      "id": "e-validate-review",
+      "source": "act-validate",
+      "target": "human-review"
+    },
+    {
+      "id": "e-review-approved",
+      "source": "human-review",
+      "target": "cond-approved"
+    },
+    {
+      "id": "e-approved-no",
+      "source": "cond-approved",
+      "target": "end-rejected",
+      "sourceHandle": "却下",
+      "label": "却下"
+    },
+    {
+      "id": "e-approved-yes",
+      "source": "cond-approved",
+      "target": "act-apply",
+      "sourceHandle": "承認",
+      "label": "承認"
+    },
+    { "id": "e-apply-notify", "source": "act-apply", "target": "notif-result" },
+    {
+      "id": "e-notify-end",
+      "source": "notif-result",
+      "target": "end-applied"
+    }
+  ],
+  "promptSettings": { "target": "generic", "language": "ja" }
+}
