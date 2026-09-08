@@ -19,13 +19,27 @@ import {
   type Viewport,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type DragEvent,
+  type MouseEvent as ReactMouseEvent,
+} from 'react'
 import { flushSync } from 'react-dom'
+import {
+  copySelection,
+  deleteSelection,
+  duplicateSelection,
+  pasteClipboard,
+  requestInspectorFocus,
+} from '../application/canvasEditUseCases'
 import {
   addNode,
   connectNodes,
   isConnectionAllowed,
-  moveNode,
+  moveNodes,
   removeEdges,
   removeNodes,
   selectElements,
@@ -33,6 +47,11 @@ import {
   updateViewport,
 } from '../application/canvasUseCases'
 import { NODE_KIND_DND_MIME } from './canvasDnd'
+import {
+  CanvasContextMenu,
+  type CanvasContextMenuTarget,
+} from './CanvasContextMenu'
+import { registerCanvasEditCommands } from './canvasEditCommands'
 import { CanvasExportModeContext } from './canvasExportMode'
 import {
   registerCanvasExportSource,
@@ -76,17 +95,34 @@ const FOCUS_DURATION_MS = 300
  */
 function withSelection<T extends { id: string; selected?: boolean }>(
   items: T[],
-  selectedId: string | null,
+  selectedIds: readonly string[],
 ): T[] {
+  const selectedSet = new Set(selectedIds)
   let changed = false
   const next = items.map((item) => {
-    const selected = item.id === selectedId
+    const selected = selectedSet.has(item.id)
     if ((item.selected ?? false) === selected) return item
     changed = true
     return { ...item, selected }
   })
   return changed ? next : items
 }
+
+/** 全件を選択した状態にする（Ctrl+A / §5.5）。変化が無ければ同一参照を返す。 */
+function withAllSelected<T extends { id: string; selected?: boolean }>(
+  items: T[],
+): T[] {
+  let changed = false
+  const next = items.map((item) => {
+    if (item.selected === true) return item
+    changed = true
+    return { ...item, selected: true }
+  })
+  return changed ? next : items
+}
+
+/** Snap to Grid のグリッド幅（§5.1）。`<Background />` の既定 gap と同じ 20px に揃える。 */
+const SNAP_GRID: [number, number] = [20, 20]
 
 /** 描画フレームを待つときの打ち切り時間（ms）。 */
 const FRAME_TIMEOUT_MS = 50
@@ -163,6 +199,11 @@ function WorkflowCanvasInner() {
   // viewport には触れないので、onMoveEnd 経由で store が汚れることはない。
   const [exportMode, setExportMode] = useState(false)
   const wrapperRef = useRef<HTMLDivElement>(null)
+
+  // Node / Edge の Context Menu（FR-004 / §5.4）。null の間は出さない。
+  const [contextMenu, setContextMenu] =
+    useState<CanvasContextMenuTarget | null>(null)
+  const closeContextMenu = useCallback(() => setContextMenu(null), [])
 
   // Domain store を外部システムとして購読し、変更をコールバックでマージする
   useEffect(
@@ -277,8 +318,8 @@ function WorkflowCanvasInner() {
   useEffect(
     () =>
       subscribeNodeFocusRequests((nodeId) => {
-        setReactFlowNodes((previous) => withSelection(previous, nodeId))
-        setReactFlowEdges((previous) => withSelection(previous, null))
+        setReactFlowNodes((previous) => withSelection(previous, [nodeId]))
+        setReactFlowEdges((previous) => withSelection(previous, []))
         if (!getNode(nodeId)) return
 
         // 中心座標は getNodesBounds から取る。getNode が返すノードには実測サイズ
@@ -308,12 +349,33 @@ function WorkflowCanvasInner() {
     setReactFlowNodes((previous) => applyNodeChanges(changes, previous))
 
     for (const change of changes) {
-      if (change.type === 'position' && change.position) {
-        moveNode(change.id, fromReactFlowPosition(change.position))
+      // ドラッグ中（dragging: true）の位置は store へ送らない。毎フレーム送ると
+      // Undo 履歴がドラッグ 1 回で大量に積まれる（§11 の「1 ドラッグ = 履歴 1 件」）。
+      // 確定値は onNodeDragStop / onSelectionDragStop でまとめて 1 回だけ書き込む。
+      if (change.type === 'position' && change.position && !change.dragging) {
+        moveNodes([
+          { id: change.id, position: fromReactFlowPosition(change.position) },
+        ])
       }
       // 'remove' は onNodesDelete で store へ反映する
     }
   }, [])
+
+  /**
+   * ドラッグ終了時に位置を 1 回だけ store へ反映する（§11）。
+   *
+   * React Flow の内部ノードから読むのは、Node ドラッグ・Selection ドラッグ・複数選択の
+   * まとめ移動を 1 か所で扱えるため。位置が変わっていなければ `moveNodes` が何もしないので、
+   * 動かさずにクリックしただけのときは履歴も dirty も発生しない。
+   */
+  const commitDraggedPositions = useCallback(() => {
+    moveNodes(
+      getNodes().map((node) => ({
+        id: node.id,
+        position: fromReactFlowPosition(node.position),
+      })),
+    )
+  }, [getNodes])
 
   const handleEdgesChange = useCallback((changes: EdgeChange<Edge>[]) => {
     setReactFlowEdges((previous) => applyEdgeChanges(changes, previous))
@@ -353,6 +415,73 @@ function WorkflowCanvasInner() {
     removeEdges(fromReactFlowIds(deleted))
   }, [])
 
+  // --- Edit メニュー / ショートカット / Context Menu からの編集操作（./canvasEditCommands.ts） ---
+
+  /**
+   * 複製・Paste で作られたノードを選択状態にする。store 側でも選択 ID を publish して
+   * いるが、React Flow へ渡す配列の `selected` は Canvas だけが触れる（§2.4）。
+   */
+  const selectCreatedNodes = useCallback((nodeIds: readonly string[]) => {
+    if (nodeIds.length === 0) return
+    setReactFlowNodes((previous) => withSelection(previous, nodeIds))
+    setReactFlowEdges((previous) => withSelection(previous, []))
+  }, [])
+
+  useEffect(
+    () =>
+      registerCanvasEditCommands({
+        deleteSelection,
+        duplicateSelection: () => selectCreatedNodes(duplicateSelection()),
+        copySelection: () => {
+          copySelection()
+        },
+        paste: () => selectCreatedNodes(pasteClipboard()),
+        selectAll: () => {
+          // 選択の store への publish は onSelectionChange 経由で行われる
+          setReactFlowNodes(withAllSelected)
+          setReactFlowEdges(withAllSelected)
+        },
+        editSelection: requestInspectorFocus,
+      }),
+    [selectCreatedNodes],
+  )
+
+  // --- Context Menu（FR-004 / §5.4） ---
+
+  /** ラッパー左上を原点にした座標へ直す（メニューを absolute で置くため）。 */
+  const toMenuPosition = useCallback((event: ReactMouseEvent) => {
+    const rect = wrapperRef.current?.getBoundingClientRect()
+    return {
+      x: event.clientX - (rect?.left ?? 0),
+      y: event.clientY - (rect?.top ?? 0),
+    }
+  }, [])
+
+  const handleNodeContextMenu = useCallback(
+    (event: ReactMouseEvent, node: Node) => {
+      // ブラウザ標準のメニューは出さない（自前メニューと二重になるため）
+      event.preventDefault()
+      // 右クリックした要素を選択してから開く。Inspector の表示対象と、
+      // Duplicate / Delete の対象を一致させる。
+      setReactFlowNodes((previous) => withSelection(previous, [node.id]))
+      setReactFlowEdges((previous) => withSelection(previous, []))
+      selectElements({ nodeIds: [node.id], edgeIds: [] })
+      setContextMenu({ kind: 'node', ...toMenuPosition(event) })
+    },
+    [toMenuPosition],
+  )
+
+  const handleEdgeContextMenu = useCallback(
+    (event: ReactMouseEvent, edge: Edge) => {
+      event.preventDefault()
+      setReactFlowNodes((previous) => withSelection(previous, []))
+      setReactFlowEdges((previous) => withSelection(previous, [edge.id]))
+      selectElements({ nodeIds: [], edgeIds: [edge.id] })
+      setContextMenu({ kind: 'edge', ...toMenuPosition(event) })
+    },
+    [toMenuPosition],
+  )
+
   const handleDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
     event.preventDefault()
     event.dataTransfer.dropEffect = 'move'
@@ -378,7 +507,7 @@ function WorkflowCanvasInner() {
     <CanvasExportModeContext.Provider value={exportMode}>
       <div
         ref={wrapperRef}
-        className={`h-full w-full ${exportMode ? EXPORT_VIEW_CLASS : ''}`}
+        className={`relative h-full w-full ${exportMode ? EXPORT_VIEW_CLASS : ''}`}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
       >
@@ -394,7 +523,19 @@ function WorkflowCanvasInner() {
           isValidConnection={handleIsValidConnection}
           onNodesDelete={handleNodesDelete}
           onEdgesDelete={handleEdgesDelete}
-          deleteKeyCode={['Delete', 'Backspace']}
+          onNodeDragStop={commitDraggedPositions}
+          onSelectionDragStop={commitDraggedPositions}
+          onNodeContextMenu={handleNodeContextMenu}
+          onEdgeContextMenu={handleEdgeContextMenu}
+          onPaneClick={closeContextMenu}
+          onPaneContextMenu={closeContextMenu}
+          onMoveStart={closeContextMenu}
+          snapToGrid
+          snapGrid={SNAP_GRID}
+          /* Delete キーは composition root の統一ハンドラが処理する（FR-006 / §5.5）。
+             React Flow に任せると Node と Edge が別々の handler で削除されて Undo 履歴が
+             2 件になり、入力欄フォーカス中の無効化判定も二重管理になるため無効にする。 */
+          deleteKeyCode={null}
           fitView
         >
           {/* Grid / MiniMap / Controls は Export 用表示では外す（§8.3 / AC-018）。
@@ -408,6 +549,16 @@ function WorkflowCanvasInner() {
             </>
           )}
         </ReactFlow>
+
+        {contextMenu && !exportMode ? (
+          <CanvasContextMenu
+            target={contextMenu}
+            onEdit={requestInspectorFocus}
+            onDuplicate={() => selectCreatedNodes(duplicateSelection())}
+            onDelete={deleteSelection}
+            onClose={closeContextMenu}
+          />
+        ) : null}
       </div>
     </CanvasExportModeContext.Provider>
   )

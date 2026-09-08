@@ -80,9 +80,36 @@ export function addNode(input: AddNodeInput): void {
   ])
 }
 
-export function moveNode(id: string, position: WorkflowPosition): void {
+export type NodeMove = {
+  id: string
+  position: WorkflowPosition
+}
+
+/**
+ * ノードの位置を反映する。**1 回の呼び出しが Undo 履歴 1 件**になる（§11）。
+ *
+ * ドラッグ中は Canvas 側がここを呼ばず、ドラッグ終了時にまとめて 1 回だけ呼ぶ。
+ * 位置が 1 つも変わっていない場合は何もしない（クリックしただけのドラッグで
+ * 履歴が積まれたり dirty が立ったりしないようにするため）。
+ */
+export function moveNodes(moves: readonly NodeMove[]): void {
   const { nodes, setNodes } = useWorkflowStore.getState()
-  setNodes(nodes.map((node) => (node.id === id ? { ...node, position } : node)))
+  const positionById = new Map(moves.map((move) => [move.id, move.position]))
+
+  let changed = false
+  const next = nodes.map((node) => {
+    const position = positionById.get(node.id)
+    if (
+      position === undefined ||
+      (position.x === node.position.x && position.y === node.position.y)
+    )
+      return node
+
+    changed = true
+    return { ...node, position }
+  })
+
+  if (changed) setNodes(next)
 }
 
 /** 接続の許否だけを問う（React Flow の isValidConnection 用）。store を変更しない。 */
@@ -119,17 +146,20 @@ export function connectNodes(input: ConnectNodesInput): void {
   setEdges([...edges, edge])
 }
 
-/** Node を削除する。接続されている Edge も必ず同時に削除し、孤立 Edge を残さない。 */
+/**
+ * Node を削除する。接続されている Edge も必ず同時に削除し、孤立 Edge を残さない。
+ * nodes / edges は setGraph で 1 回にまとめる（Undo 1 回で戻せるようにするため。§11）。
+ */
 export function removeNodes(ids: readonly string[]): void {
-  const { nodes, edges, setNodes, setEdges } = useWorkflowStore.getState()
+  const { nodes, edges, setGraph } = useWorkflowStore.getState()
   const removed = new Set(ids)
 
-  setNodes(nodes.filter((node) => !removed.has(node.id)))
-  setEdges(
-    edges.filter(
+  setGraph({
+    nodes: nodes.filter((node) => !removed.has(node.id)),
+    edges: edges.filter(
       (edge) => !removed.has(edge.source) && !removed.has(edge.target),
     ),
-  )
+  })
 }
 
 export function removeEdges(ids: readonly string[]): void {

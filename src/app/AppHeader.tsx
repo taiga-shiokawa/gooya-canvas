@@ -1,142 +1,91 @@
+import { canvasEditCommands } from '@/modules/canvas'
 import { ExportDialog, useExportCommands } from '@/modules/export'
 import { ProjectDialog, useProjectCommands } from '@/modules/project'
 import { PromptPanel } from '@/modules/prompt'
 import { ReviewPanel } from '@/modules/review'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  redoWorkflow,
+  undoWorkflow,
+  useWorkflowHistory,
+  useWorkflowStore,
+} from '@/modules/shared'
+import { useState } from 'react'
+import { AppMenu, type AppMenuItem } from './AppMenu'
 import {
   exportUseCases,
   projectUseCases,
   promptUseCases,
   reviewUseCases,
 } from './ports'
+import { useAppShortcuts } from './useAppShortcuts'
 
 // Header（docs/functional-design.md §4.2）。
-// File メニューは Phase 4（Persistence）+ Phase 7（Export）、
+// File メニューは Phase 4（Persistence）+ Phase 7（Export）、Edit メニューは Phase 8、
 // Main Actions の Generate Prompt は Phase 5、Review Flow は Phase 6。
 //
-// ヘッドレス UI ライブラリは未導入のため、メニューは自前実装で
-// Esc クローズ・外側クリック・aria 属性・フォーカス復帰を担保する
-// （docs/development-guidelines.md §4.1）。
-
-const MENU_ID = 'app-file-menu'
-
-const MENU_ITEM_CLASS =
-  'w-full rounded px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100 focus-visible:bg-slate-100 focus-visible:outline-none disabled:cursor-default disabled:text-slate-400 disabled:hover:bg-transparent'
+// メニューの見た目・キーボード操作は自前実装の AppMenu が持ち、ここは項目の定義
+// （何を出し、何を呼ぶか）だけを書く。canvas / project という別モジュールのコマンドを
+// 同じ場所から呼べるのは composition root だけの特権（repository-structure §5.3）。
 
 export function AppHeader() {
   const commands = useProjectCommands(projectUseCases)
   const exportCommands = useExportCommands(exportUseCases)
+  const { canUndo, canRedo } = useWorkflowHistory()
+  const hasSelection = useWorkflowStore(
+    (state) =>
+      state.selectedNodeIds.length > 0 || state.selectedEdgeId !== null,
+  )
+  const hasSelectedNode = useWorkflowStore(
+    (state) => state.selectedNodeIds.length > 0,
+  )
   const [promptOpen, setPromptOpen] = useState(false)
   const [reviewOpen, setReviewOpen] = useState(false)
-  const [menuOpen, setMenuOpen] = useState(false)
-  const menuRef = useRef<HTMLDivElement>(null)
-  const triggerRef = useRef<HTMLButtonElement>(null)
 
-  const closeMenu = useCallback((returnFocus: boolean) => {
-    setMenuOpen(false)
-    if (returnFocus) triggerRef.current?.focus()
-  }, [])
+  useAppShortcuts({
+    saveProject: commands.saveProject,
+    openProject: commands.openProject,
+  })
 
-  useEffect(() => {
-    if (!menuOpen) return
+  const fileItems: AppMenuItem[] = [
+    { label: 'New', onSelect: commands.newProject },
+    { label: 'Open Project', onSelect: commands.openProject },
+    { label: 'Save Project', onSelect: commands.saveProject },
+    {
+      label: 'Export PDF',
+      onSelect: exportCommands.exportPdf,
+      disabled: exportCommands.isExporting,
+      separatorBefore: true,
+    },
+    {
+      label: 'Export PNG',
+      onSelect: exportCommands.exportPng,
+      disabled: exportCommands.isExporting,
+    },
+  ]
 
-    const handlePointerDown = (event: MouseEvent) => {
-      const target = event.target
-      if (target instanceof Node && menuRef.current?.contains(target)) return
-      setMenuOpen(false)
-    }
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') closeMenu(true)
-    }
-
-    document.addEventListener('mousedown', handlePointerDown)
-    document.addEventListener('keydown', handleKeyDown)
-    return () => {
-      document.removeEventListener('mousedown', handlePointerDown)
-      document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [closeMenu, menuOpen])
-
-  const runCommand = (command: () => void) => {
-    closeMenu(true)
-    command()
-  }
+  const editItems: AppMenuItem[] = [
+    { label: 'Undo', onSelect: undoWorkflow, disabled: !canUndo },
+    { label: 'Redo', onSelect: redoWorkflow, disabled: !canRedo },
+    {
+      label: 'Delete',
+      onSelect: canvasEditCommands.deleteSelection,
+      disabled: !hasSelection,
+      separatorBefore: true,
+    },
+    {
+      label: 'Duplicate',
+      onSelect: canvasEditCommands.duplicateSelection,
+      disabled: !hasSelectedNode,
+    },
+  ]
 
   return (
     <header className="relative flex h-12 shrink-0 items-center gap-4 border-b border-slate-200 bg-white px-4">
       <span className="text-sm font-semibold text-slate-800">GOOYA Canvas</span>
 
-      <nav className="flex items-center gap-1" aria-label="File">
-        <div className="relative" ref={menuRef}>
-          <button
-            type="button"
-            ref={triggerRef}
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-            aria-controls={menuOpen ? MENU_ID : undefined}
-            onClick={() => setMenuOpen((open) => !open)}
-            className={`rounded px-2.5 py-1 text-sm text-slate-700 hover:bg-slate-100 ${
-              menuOpen ? 'bg-slate-100' : ''
-            }`}
-          >
-            File
-          </button>
-
-          {menuOpen ? (
-            <div
-              id={MENU_ID}
-              role="menu"
-              aria-label="File"
-              className="absolute top-full left-0 z-20 mt-1 w-48 rounded-md border border-slate-200 bg-white p-1 shadow-lg"
-            >
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => runCommand(commands.newProject)}
-                className={MENU_ITEM_CLASS}
-              >
-                New
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => runCommand(commands.openProject)}
-                className={MENU_ITEM_CLASS}
-              >
-                Open Project
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => runCommand(commands.saveProject)}
-                className={MENU_ITEM_CLASS}
-              >
-                Save Project
-              </button>
-
-              <hr className="my-1 border-slate-200" />
-
-              <button
-                type="button"
-                role="menuitem"
-                disabled={exportCommands.isExporting}
-                onClick={() => runCommand(exportCommands.exportPdf)}
-                className={MENU_ITEM_CLASS}
-              >
-                Export PDF
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                disabled={exportCommands.isExporting}
-                onClick={() => runCommand(exportCommands.exportPng)}
-                className={MENU_ITEM_CLASS}
-              >
-                Export PNG
-              </button>
-            </div>
-          ) : null}
-        </div>
+      <nav className="flex items-center gap-1" aria-label="Main">
+        <AppMenu label="File" items={fileItems} />
+        <AppMenu label="Edit" items={editItems} />
       </nav>
 
       <div className="ml-auto flex items-center gap-2">

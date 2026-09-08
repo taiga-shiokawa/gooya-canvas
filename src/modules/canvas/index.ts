@@ -2,6 +2,10 @@
 // composition root（src/app/）が組み立てに使う presentation のみを出す。
 // @xyflow/react 由来の型は公開しない（NFR-010）。
 export {
+  canvasEditCommands,
+  type CanvasEditCommands,
+} from './presentation/canvasEditCommands'
+export {
   canvasExportSource,
   type CanvasExportBounds,
   type CanvasExportSource,
