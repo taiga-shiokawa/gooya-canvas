@@ -50,8 +50,17 @@
 - **`eslint-plugin-import` は採用せず `eslint-plugin-import-x` を採用する。** `eslint-plugin-import` の peerDependencies が ESLint `^9` までで、本プロジェクトの ESLint 10 に対応していないため。ルール名は `import-x/no-restricted-paths`（§3.2）。
 - **`eslint-import-resolver-typescript` を追加する。** 拡張子を省略した import と `@/` エイリアスを解決できないと `no-restricted-paths` の zones が発火しないため（Phase 0 の実測で確認済み）。
 - **Radix UI は未導入とする。** 現時点で必要な UI プリミティブがなく、特定 UI フレームワークへ強依存しない方針（NFR-011）と整合する。必要になった時点で導入を判断する。
-- **導入済みだが使用開始が後続フェーズのもの**: zundo は Phase 8（Undo / Redo）、Zod は Phase 4（プロジェクト JSON validation）、html-to-image / jsPDF は Phase 7（PNG / PDF Export — FR-016, FR-017）、Playwright による E2E は Phase 5。依存を先行導入することでフェーズ着手時のセットアップ差分を無くす（フェーズ定義は `development-roadmap.md`）。
+- **導入済みだが使用開始が後続フェーズのもの**: zundo は Phase 8（Undo / Redo）、Zod は Phase 4（プロジェクト JSON validation）、html-to-image / jsPDF は Phase 7（PNG / PDF Export — FR-016, FR-017）、Playwright による E2E は Phase 5。依存を先行導入することでフェーズ着手時のセットアップ差分を無くす（フェーズ定義は `development-roadmap.md`）。**MVP（Phase 0〜8）完了時点で全依存が使用開始済み。**
 - ID 採番はライブラリを使わず標準 API `crypto.randomUUID()` を用いる（AD-08）。
+
+### 1.4 実装時に判明したライブラリの制約（Phase 7）
+
+回避策ごと忘れると同じ不具合を踏み直すため記録する。振る舞いの定義は `functional-design.md` §8 が所有する。
+
+- **html-to-image は SVG のサブツリーを算出スタイルを写さずにクローンする。** React Flow は Edge を CSS クラスだけで塗るため、そのまま画像化すると **Edge が一切写らない**。Export 中だけ SVG の presentation プロパティをインライン化し、終わったら戻す必要がある。
+- **html-to-image は `requestAnimationFrame` を待つ。** タブが非表示のあいだ Export は進まない（表示に戻せば完了する）。
+- **jsPDF の標準 14 フォントは WinAnsi（Latin-1 相当）しか持たない。** 日本語の Project Name を `text()` へ渡すと文字化けするか消える。CJK フォントのバンドルは数 MB になり NFR-004（外部フォントを読み込まない）とも噛み合わないため、**WinAnsi で描けないテキストはブラウザのシステムフォントで画像化して埋め込む**。
+- **ブラウザの canvas には 1 辺の上限がある**（概ね 8192px）。超えると例外ではなく無言で失敗するため、出力寸法を上限で頭打ちにする。
 
 ## 2. 採用したアーキテクチャ選択とその理由
 

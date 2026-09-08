@@ -60,7 +60,7 @@
 | schemaVersion | プロジェクトファイルの構造バージョン。現行 `"1.0"`（定数 `SCHEMA_VERSION`）。現行版より新しいファイルは開かない（FR-014） | functional-design §7.4 |
 | Schema Migration | 旧 schemaVersion のファイルを読込時に現行版へ順次変換する純関数の連鎖。MVP 時点でレジストリは空 | functional-design §7.4 |
 | Crash Recovery | dirty 状態の Domain Model を localStorage へ自動保存し、起動時に復元を提案する仕組み。**正式保存ではない**（NFR-006） | functional-design §7.5 |
-| Port（ポート） | application 層が定義し infrastructure 層が実装する interface。5 種（§5.2）。依存性逆転の担保点 | functional-design §2.3 |
+| Port（ポート） | application 層が定義し infrastructure 層が実装する interface。7 種（§5.2）。依存性逆転の担保点。`CanvasSourcePort` のみ具象が canvas の presentation にある（理由は repository-structure §5.2） | functional-design §2.3 |
 | Reference Workflow | 初回起動時に読み込まれるサンプルプロジェクト「**Interview Evaluation Reminder**」（面接評価リマインダー）（FR-015） | functional-design §7.6 |
 
 ### 1.5 MVP 後の拡張候補の用語（development-roadmap §4）
@@ -160,6 +160,8 @@
 | `RecoveryStoragePort` | Crash Recovery（NFR-006） |
 | `CanvasImagePort` | Canvas の画像化（PNG / PDF の元画像）（FR-016） |
 | `PdfComposerPort` | PDF 合成（FR-017） |
+| `ExportFilePort` | Export した Blob のダウンロード（FR-016, FR-017） |
+| `CanvasSourcePort` | Export 用の Bounding Box 取得と Export 表示への切替（FR-016, AC-018, AC-019） |
 | `ClipboardPort` | Prompt のコピー（AC-023） |
 
 ### 5.3 主要ユースケース関数

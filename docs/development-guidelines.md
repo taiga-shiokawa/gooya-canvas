@@ -45,6 +45,8 @@ npm scripts の定義一覧は `architecture.md` §5.1（npm scripts）・§5.2�
 
 - ブラウザ標準動作と競合するショートカット（Ctrl+S / Ctrl+O / Ctrl+D / Ctrl+A 等）は `preventDefault()` を適切に呼ぶ。
 - **Input / Textarea へのフォーカス中は Canvas ショートカットを無効化する**（Delete がノード削除ではなく文字削除として働くこと）。フォーカス判定はショートカットハンドラの共通前段で一元的に行い、各ハンドラへ分散させない。
+- **キーの組み合わせ判定は `shared` の domain に純関数として置き、DOM のイベント型に依存させない**（テストが DOM モックなしで書けること — §5.1）。イベントの購読と、どのユースケースを呼ぶかの配線は composition root（`src/app/`）が持つ。ショートカットは複数の feature モジュール（canvas / project など）を横断して呼ぶため、モジュール間 import が禁止されている以上（`repository-structure.md` §5.1 #4）配線できるのは composition root だけである。
+- **キーの割り当てと例外規則の正は `functional-design.md` §5.5**（入力欄フォーカス中も有効にする例外、モーダル表示中の扱い、Mac の Command キーなど）。本節は実装構成のみを定める。
 
 ### 2.5 セキュリティ実装規約（メモ §39、NFR-001〜003）
 

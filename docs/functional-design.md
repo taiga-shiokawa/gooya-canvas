@@ -57,17 +57,28 @@ graph TD
 | domain | Workflow Domain Model・Zod スキーマ・migration・接続ルール。純関数のみ | React / @xyflow/react / ブラウザ API への依存 |
 | infrastructure | ポートの具象実装（Blob download、File Picker、Clipboard、localStorage、html-to-image、jsPDF） | ドメインロジックの保持 |
 
+application の依存に関する運用規約を 2 点補足する。
+
+- **ブラウザ API はタイマーも注入対象とする**。`setTimeout` / `clearTimeout` 相当の遅延実行も application 内で直接呼ばず、composition root から関数として注入する。時間に依存するユースケース（自動保存の debounce。§7.5）をテストから制御できるようにするためである。
+- **外部入力の検証に限り、application は Zod を直接使ってよい**。プロジェクトファイル（§7.3）や復旧データ（§7.5）のように外部から入ってきた文字列を検証するのは application のユースケースの責務であり、スキーマ定義そのものは domain が所有する（§3.2）。この用途に限って、上表の「外部ライブラリ具象への直接依存」の禁止は適用しない。検証結果として得られるのは常に Domain 型であり、Zod 固有の型を application の外へ出さない。
+
 ### 2.3 ポートの定義場所・実装場所・注入方法
 
 | ポート（interface） | 定義場所 | 実装場所（具象） | 用途 |
 |---|---|---|---|
 | `ProjectFilePort`（`download(name, json)` / `pickAndRead(): Promise<string \| null>`。**`null` はキャンセルまたは読み取り不能を表す**） | `project` の application/ports | infrastructure（Blob + `<a download>` / `<input type="file">`） | 保存・読込（FR-012, FR-013） |
-| `RecoveryStoragePort`（`save` / `load` / `clear`） | `project` の application/ports | infrastructure（localStorage） | Crash Recovery（NFR-006） |
-| `CanvasImagePort`（`capture(bounds, options): Promise<Blob>`） | `export` の application/ports | infrastructure（html-to-image） | PNG / PDF の元画像（FR-016） |
-| `PdfComposerPort`（`compose(image, meta): Promise<Blob>`） | `export` の application/ports | infrastructure（jsPDF） | PDF 出力（FR-017） |
+| `RecoveryStoragePort`（`save(json: string): void` / `load(): string \| null` / `clear(): void`） | `project` の application/ports | infrastructure（localStorage） | Crash Recovery（NFR-006） |
+| `CanvasImagePort`（`capture(bounds, options): Promise<Blob \| null>`。**`null` は画像化失敗を表す**） | `export` の application/ports | infrastructure（html-to-image） | PNG / PDF の元画像（FR-016） |
+| `PdfComposerPort`（`compose(image, meta): Promise<Blob \| null>`。**`null` は PDF 組版失敗を表す**） | `export` の application/ports | infrastructure（jsPDF） | PDF 出力（FR-017） |
+| `CanvasSourcePort`（全 Node / Edge の Bounding Box の取得と、Export 表示への切替） | `export` の application/ports | **`canvas` モジュール**（React Flow の実測情報を持つのは canvas のみ。§8.4） | Export 対象範囲の決定と描画の切替（FR-016, AC-018） |
+| `ExportFilePort`（生成された Blob のダウンロード） | `export` の application/ports | infrastructure（Blob + `<a download>`） | PNG / PDF の書き出し（FR-016, FR-017） |
 | `ClipboardPort`（`copy(text)`） | `prompt` の application/ports | infrastructure（Clipboard API） | Prompt コピー（AC-023） |
 
-`pickAndRead` がキャンセルを例外ではなく `null` として解決するのは、キャンセル時に Promise を未解決のまま放置すると読込ユースケースが永久に完了しないためである（§7.3）。
+`pickAndRead` がキャンセルを例外ではなく `null` として解決するのは、キャンセル時に Promise を未解決のまま放置すると読込ユースケースが永久に完了しないためである（§7.3）。**`capture` / `compose` も同じ「例外を外へ漏らさない」規約に従い、失敗を `null` として返す**。Export は Canvas を一時的に Export 用表示へ切り替えるため、例外が application を素通りすると通常表示へ復帰できないまま処理が終わる。
+
+`RecoveryStoragePort` の**具象も例外を外へ漏らさない**。localStorage は参照自体が不可な環境（プライベートモード等）や容量超過で例外を投げるが、自動保存の失敗で編集操作が中断してはならないため、具象側で吸収し `save` / `clear` は黙って何もせず、`load` は `null` を返す。
+
+`ExportFilePort` を `ProjectFilePort` と別に定義するのは、`ProjectFilePort` が JSON テキスト専用の契約である上に、モジュール間の直接 import を禁じている（§2.1）ため `project` のポートを `export` から使い回せないからである。
 
 具象実装はアプリ起動時（エントリポイント）に組み立て、application service へ引数または生成時注入で束ねる。DI コンテナは導入しない（規模に対して過剰なため）。
 
@@ -82,9 +93,10 @@ graph TD
 | `fromReactFlowConnection` / `fromReactFlowPosition` / `fromReactFlowIds` | React Flow → Domain | 接続・座標・選択/削除対象 ID を Domain 値へ変換する（`fromReactFlow` という単一関数は置かない。React Flow のイベントは種類ごとに必要な情報が異なるため） |
 | `mergeReactFlowNodes` / `mergeReactFlowEdges` | Domain の変更 → 既存 React Flow 配列 | Domain の変更を既存配列へマージする。**変化のない要素は同一参照を維持し、配列全体に変化が無ければ配列そのものも同一参照を返す** |
 
-- **controlled flow の要点**: React Flow は `measured`（測定済みサイズ）や `selected` を、props で渡したノード／エッジ**オブジェクト自身**に保持する。そのため Domain の変更ごとに配列を作り直すと MiniMap が描画されないなどの不整合が起きる。これを避けるため、(a) Domain → React Flow の同期は store の `subscribe` で購読し `mergeReactFlow*` を通して適用する、(b) `onNodesChange` の `dimensions` 変更を `applyNodeChanges` で適用しないと `measured` が付かないため、同 handler で必ず適用する、(c) Condition の分岐（Source Handle の識別子と位置）が変化した場合は、Canvas 側から React Flow へ Handle の再計算を明示的に通知する。通知しないと Edge が旧 Handle 位置のまま描画される、(d) 起動時の全体表示（fit）は**全ノードの実測サイズが揃うまで待って**から行う。測定前に fit すると実測 0 の矩形へ合わせようとして最大倍率までズームインしてしまう。
+- **controlled flow の要点**: React Flow は `measured`（測定済みサイズ）や `selected` を、props で渡したノード／エッジ**オブジェクト自身**に保持する。そのため Domain の変更ごとに配列を作り直すと MiniMap が描画されないなどの不整合が起きる。これを避けるため、(a) Domain → React Flow の同期は store の `subscribe` で購読し `mergeReactFlow*` を通して適用する、(b) `onNodesChange` の `dimensions` 変更を `applyNodeChanges` で適用しないと `measured` が付かないため、同 handler で必ず適用する、(c) Condition の分岐（Source Handle の識別子と位置）が変化した場合は、Canvas 側から React Flow へ Handle の再計算を明示的に通知する。通知しないと Edge が旧 Handle 位置のまま描画される、(d) 起動時の全体表示（fit）は**全ノードの実測サイズが揃うまで待って**から行う。測定前に fit すると実測 0 の矩形へ合わせようとして最大倍率までズームインしてしまう、(e) **Export 表示への切替（§8.3）は React の context で全ノード／エッジへ配る**。切替フラグを各 node の `data` に載せると React Flow へ渡す配列を作り直すことになり、(b) で得た `measured` と `selected` を失うためである（(a) と同じ理由）。
 - JSON 保存・Prompt 生成・Flow Review はすべて Domain Model を入力とし、React Flow の内部状態を直接読まない。
-- store が持つ UI 状態: `viewport` / `isDirty` / inspector・panel の開閉状態 / prompt settings。Undo / Redo 履歴は zundo で Node / Edge 配列のみを対象にする（§11）。
+- store が持つ UI 状態: `viewport` / `isDirty` / inspector・panel の開閉状態 / prompt settings / `reviewFindings`（直近の Review 結果。§10）/ `nodeFocusRequest`（Canvas へ特定 Node へ移動させる要求。§10.3）/ `inspectorFocusRequest`（Inspector へフォーカスさせる要求。§5.4）。**後者 3 つは保存対象（`WorkflowProject`）に含めず、`isDirty` も立てず、Undo 履歴の対象外とする**（§11）。Undo / Redo 履歴は zundo で Node / Edge 配列のみを対象にする（§11）。
+- **`nodes` と `edges` の双方を変える操作は、1 回の store 更新にまとめる**（Node 削除に伴う Edge 削除、Copy / Paste、Condition の分岐削除に伴う Edge 削除など）。2 回に分けると Undo 履歴も 2 件になり、ユーザーが 1 操作と認識したものを取り消すのに Ctrl+Z を 2 回要求してしまう。
 - **dirty 判定規則**: `isDirty` を立てるのは `nodes` / `edges` / `metadata` / `promptSettings` の変更である。**`viewport` の変更と選択状態の変更では立てない**（Pan / Zoom のたびに未保存インジケータが点くのを避けるため。Viewport を Undo 履歴の対象外とする §11 の方針と一貫する）。`isDirty` を倒すのは、正式保存の成功時（§7.2）と、New / Open / Crash Recovery による store 復元時（§7.1 / §7.3 / §7.5）である。
 - **選択状態（選択中の Node / Edge）の所有者**: 選択状態は Domain Model ではないため、保存対象（`WorkflowProject`）にも Undo 履歴にも含めない。**Phase 3 で `shared` の store へ移管済み**であり、store が `selectedNodeIds` / `selectedEdgeId` を保持し、Canvas と Inspector の双方が store を購読する（Phase 1 の暫定である「React Flow の `nodes` / `edges` 配列上の `selected` を唯一の所有者とする」方式は廃止した）。**store が持つのは ID のみで、React Flow 型は store へ出さない**。Canvas は store の選択 ID を React Flow の `selected` へ反映し、React Flow 側の選択変更は ID へ変換して store へ戻す。
 
@@ -247,7 +259,7 @@ type WorkflowEdge = {
 ### 4.3 ステータスバー
 
 - dirty 状態（未保存変更あり）のインジケータを表示する。
-- 直近の Flow Review 実行結果のサマリ（`2 Errors / 4 Warnings / 3 Suggestions` 形式）を表示する。
+- 直近の Flow Review 実行結果のサマリ（`2 Errors / 4 Warnings / 3 Suggestions` 形式）を表示する。**Review を一度も実行していない間はサマリを表示しない**（未実行と「問題 0 件」は意味が異なるため）。
 - その他の表示項目（ズーム率・ノード数など）: （要確認）— 初期要求メモは「Status / validation」とのみ定義。
 
 ### 4.4 画面遷移図
@@ -256,13 +268,14 @@ type WorkflowEdge = {
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Editor : 起動（初回はサンプル読込 §7.6）
-    Editor --> RecoveryDialog : localStorage に復旧データあり
-    RecoveryDialog --> Editor : Restore / Discard
+    [*] --> RecoveryDialog : 復旧データあり
+    [*] --> Editor : 復旧データなし（初回はサンプル読込 §7.6）
+    RecoveryDialog --> Editor : Restore / Discard / Esc
     Editor --> PromptPanel : Generate Prompt
     PromptPanel --> Editor : 閉じる / Copy 後
     Editor --> ReviewPanel : Review Flow
-    ReviewPanel --> Editor : 問題クリック（該当 Node へ移動）/ 閉じる
+    ReviewPanel --> ReviewPanel : 問題クリック（パネルは開いたまま Canvas が該当 Node へ移動）
+    ReviewPanel --> Editor : 閉じる
     Editor --> OpenErrorDialog : 異常ファイル読込
     OpenErrorDialog --> Editor : 閉じる（Canvas は非破壊）
     Editor --> NewConfirmDialog : File > New（未保存変更あり）
@@ -289,11 +302,11 @@ graph LR
 
 本節は MVP 完成時点の仕様である。フェーズ差のある項目には担当フェーズを注記する（フェーズ定義は `docs/development-roadmap.md`）。
 
-- **追加**: Node Palette から Canvas へドラッグ&ドロップで追加する。追加時に種別ごとの既定 `title` と初期 `config`（§3.3。Condition は `branches: ["Yes", "No"]`）を設定する。**種別ごとの初期 `config` の設定は Phase 2〜3**（Phase 1 は全種別 `config: {}` で追加する）。
-- **移動 / 選択**: ドラッグ移動、クリック選択、Selection Rectangle と Shift クリックによる複数選択。移動時は Snap to Grid を有効にする（**Snap to Grid は Phase 8**。Phase 1 では無効）。選択状態の保持場所は §2.4 を参照。
-- **削除**: 選択中の Node / Edge を Delete キー・Edit メニュー・Context Menu から削除する。Node 削除時は接続されている Edge も削除する。
-- **複製**: Ctrl+D / Context Menu。複製ノードは新 ID を採番し、元ノードから少しオフセットした位置へ配置する。設定値（`data`）を引き継ぐ。
-- **Copy / Paste**: Ctrl+C / Ctrl+V。選択中の Node（複数可）と、選択集合内で閉じている Edge をまとめて複製する。クリップボードはアプリ内メモリとする（OS クリップボード連携は（要確認））。
+- **追加**: Node Palette から Canvas へドラッグ&ドロップで追加する。追加時に種別ごとの既定 `title` と初期 `config`（§3.3。Condition は `branches: ["Yes", "No"]`）を設定する。**Palette からのドロップ位置はスナップしない**（本節が Snap to Grid を定めるのは「移動時」であり、ドロップ位置はユーザーがカーソルで示した位置をそのまま尊重する）。**種別ごとの初期 `config` の設定は Phase 2〜3**（Phase 1 は全種別 `config: {}` で追加する）。
+- **移動 / 選択**: ドラッグ移動、クリック選択、Selection Rectangle と Shift クリックによる複数選択。移動時は Snap to Grid を有効にし、**グリッド幅は 20px** とする（Canvas に描画する格子と同じ間隔にして、目に見える線とスナップ位置を一致させるため）。選択状態の保持場所は §2.4 を参照。
+- **削除**: 選択中の Node / Edge を Delete キー・Edit メニュー・Context Menu から削除する。Node 削除時は接続されている Edge も削除する（Node と Edge の変更は 1 回の更新にまとめる。§2.4）。
+- **複製**: Ctrl+D / Context Menu。複製ノードは新 ID を採番し、元ノードから **(40, 40) だけオフセットした位置**へ配置する。設定値（`data`）を引き継ぐ。
+- **Copy / Paste**: Ctrl+C / Ctrl+V。選択中の Node（複数可）と、選択集合内で閉じている Edge をまとめて複製する。Paste 位置は元の位置から **(40, 40) のオフセット**とし、**同一クリップボード内容を連続して Paste した場合は回数ぶんオフセットを重ねる**（同じ位置に貼り重なって見分けが付かなくなるのを避けるため）。クリップボードは**アプリ内メモリのみ**とし、**OS クリップボードとの連携は MVP ではスコープ外**（MVP 後の拡張候補。development-roadmap §4）。
 - **ノード表示**: 各ノードは icon・node type・title・short description のみ表示し、詳細は Inspector に委ねる（FR-008）。Bundled Icons を使用する（NFR-004）。**この表示仕様（Custom Node）は Phase 2**。Phase 1 は React Flow のデフォルトノードで `title` のみを表示する（mapper のシグネチャは変えず、`toReactFlow` の内部と `nodeTypes` 登録の差し替えで移行する。§2.4）。
 
 ### 5.2 接続バリデーション（FR-007）
@@ -325,11 +338,14 @@ graph LR
 
 Node / Edge 上の右クリックで表示する: **Edit**（Inspector へフォーカス）/ **Duplicate** / **Delete**。
 
+- 項目は Node / Edge のいずれでも **3 つとも表示する**（位置が動くと誤操作を招くため、対象によって項目を出し入れしない）。
+- ただし **Edge を対象にした場合は Duplicate を無効表示**にする。Edge 単体の複製は両端の Node を伴わずには定義できず、同じ 2 ノード間に意味のない多重 Edge を生むだけになるためである。
+
 ### 5.5 キーボードショートカット（FR-006）
 
 | キー | 動作 |
 |---|---|
-| Delete | 選択中の Node / Edge を削除 |
+| Delete / Backspace | 選択中の Node / Edge を削除 |
 | Ctrl+Z | Undo |
 | Ctrl+Shift+Z | Redo |
 | Ctrl+D | Duplicate |
@@ -338,7 +354,12 @@ Node / Edge 上の右クリックで表示する: **Edit**（Inspector へフォ
 | Ctrl+O | Open Project |
 | Ctrl+A | Select All |
 
-ブラウザ標準動作と競合するもの（Ctrl+S / Ctrl+O 等）は `preventDefault` する。Input / Textarea へのフォーカス中は Canvas ショートカットを無効化する（テキスト編集を優先）。
+ブラウザ標準動作と競合するもの（Ctrl+S / Ctrl+O 等）は既定動作を抑止する。Input / Textarea へのフォーカス中は Canvas ショートカットを無効化する（テキスト編集を優先）。加えて次を定める。
+
+- **Ctrl+S / Ctrl+O は入力欄フォーカス中も有効**とする。無効化すると抑止も行われず、ブラウザ既定の「ページを保存」「ファイルを開く」が走ってしまい、ユーザーの意図（プロジェクトの保存 / 読込）と乖離するためである。それ以外の Canvas ショートカットは入力欄フォーカス中は無効のままとする。
+- **モーダルダイアログ（Recovery / New 確認 / Open エラー）表示中は全ショートカットを無効**にする。背後の Canvas がキー操作で変化すると、ダイアログの選択結果が前提としていた状態が崩れるためである。非モーダルの Review Panel / Prompt Panel は対象外で、表示中もショートカットは有効。
+- **Mac の Command キーは Ctrl と同じ主修飾キーとして扱う**（表の Ctrl はいずれも Command で代替できる）。
+- Delete と Backspace は同じ削除操作に割り当てる（Mac のキーボードに独立した Delete キーがない機種があるため）。
 
 ## 6. Inspector（FR-009, AC-010, AC-011）
 
@@ -407,13 +428,18 @@ store へ反映（既存 Canvas を置き換え）
 
 ### 7.5 Crash Recovery（NFR-006）
 
-- dirty 状態の間、Domain Model を debounce 付きで localStorage（`RecoveryStoragePort`）へ自動保存する（保存間隔: （要確認）— 初期要求に定義なし。既定 5 秒程度を想定）。
-- 起動時に復旧データが存在すれば「Unsaved recovery data found. Restore?」ダイアログを表示し、Restore で store へ復元、Discard で削除する。
+- dirty 状態の間、Domain Model を localStorage（`RecoveryStoragePort`）へ自動保存する。**保存タイミングは変更から 2 秒の debounce。ただし連続編集中も、最初の変更から 10 秒経過した時点で必ず 1 回書き出す**。純粋な debounce だけでは、ユーザーが入力し続けている間は一度も保存されず、長い編集セッションほど復旧できない範囲が広がるためである。
+- **自動保存を起こすのは dirty 判定と同じ 4 項目**（`nodes` / `edges` / `metadata` / `promptSettings`。§2.4）の変更とし、**`viewport` の変更では起こさない**。Pan / Zoom のたびに debounce が延長され、かえって書き出しが遅れるためである。**ただし書き出す内容には `viewport` を含める**（復旧後に直前の見え方を再現するため）。
+- **保存形式は `{ savedAt, project }`** とする。`project` は正式なプロジェクトファイル（§3.2）と**同一スキーマ**であり、`schemaVersion` と Migration の扱いも §7.3 と揃える（読み出し時に Zod validation と Migration を通し、失敗した復旧データは復旧データなしとして扱う）。`savedAt` は復旧ダイアログで「いつ時点のデータか」を示すために使う。
+- 起動時に復旧データが存在すれば復旧ダイアログを表示する（起動時の判定が先で、判定結果によって復旧ダイアログか Editor のいずれかで開始する。§4.4）。**ダイアログの文言は日本語**とする（§7.3 のエラー文言が日本語であり、UI の言語を揃えるため）。主ボタンは「復元する」、副次ボタンは「破棄する」とし、`savedAt` を併記する。
+- **Restore（復元）時も復旧データを削除する**。残したままにすると、復元後に正式保存するまで起動のたびに同じダイアログが出続けるためである。
+- **Discard（破棄）は復旧データを削除し、サンプルを読み込まず空の Canvas で開始する**（起動時に復旧データがあった以上、初回起動ではないため。§7.6）。
+- **Esc は非破壊**とする。復旧データを削除せずダイアログを閉じるだけで、次回起動時に再度提示される。副次ボタンが「破棄する」という破壊的操作であり、Esc をそれと同義にすると誤ってデータを失うためである。このとき Canvas は空のまま（サンプルは読み込まれない — §7.6）であり、復元したい場合はリロードして再提示させる。
 - 正式保存（§7.2）成功時と New / Open 確定時に復旧データを削除する。localStorage を正式な保存先として扱わない。
 
 ### 7.6 サンプルプロジェクト（FR-015, US-010）
 
-初回起動時（復旧データも既存プロジェクトもない場合）に Reference Workflow「**Interview Evaluation Reminder**」を読み込んだ状態で開始する。内容:
+初回起動時（復旧データも既存プロジェクトもない場合）に Reference Workflow「**Interview Evaluation Reminder**」を読み込んだ状態で開始する。**復旧データが存在する間はサンプルを読み込まず、Discard で復旧データを破棄した後も読み込まない**（復旧データがあった時点で初回起動ではなく、ユーザーが破棄を選んだ意図は「空の状態から始める」ことだと解釈する。§7.5）。内容:
 
 ```text
 Trigger: Google Calendar 面接終了
@@ -436,20 +462,44 @@ Trigger: Google Calendar 面接終了
 ```text
 全 Node / Edge の Bounding Box を取得（Viewport の可視範囲ではない）
 ↓
-Export 用表示へ切替（§8.3 の UI 要素を非表示）
+Export 用表示へ切替（§8.3）
 ↓
-CanvasImagePort（html-to-image）で高解像度 PNG を生成
+CanvasImagePort で Bounding Box + 余白の範囲を PNG 化
 ↓
-通常表示へ復帰 → Blob をダウンロード
+通常表示へ復帰 → ExportFilePort で Blob をダウンロード
 ```
+
+画像化の確定仕様:
+
+- **Bounding Box は Node の外接矩形から求める**。Edge は必ず Node と Node の間に引かれるため、全 Node を包含すれば Edge も収まる。
+- **解像度は等倍の 2 倍**で出力する。等倍では Node のテキストが拡大・印刷時に潰れるためである。
+- Bounding Box の四辺へ **40 の余白**を加える。Edge のベジェ曲線は Node の外接矩形より外へ膨らみ、Node には影が付くため、余白がないと端が欠ける。
+- 出力画像は **1 辺 8192px で頭打ち**とし、これを超える場合は解像度倍率を下げて収める。ブラウザの canvas には辺の長さに上限があり、超えると**エラーにならず無言で空または破損した画像になる**ため、上限側で必ず抑える。
 
 ### 8.2 PDF Export
 
-PNG と同じ画像化フローの後、`PdfComposerPort`（jsPDF）で **Canvas 全体を 1 ページに Fit** させて配置し、Project Name・Generated Date を付記してダウンロードする。巨大 Workflow の複数ページ分割は MVP 後の拡張候補（development-roadmap §4）であり、スコープ外。
+PNG と同じ画像化フローの後、`PdfComposerPort` で **1 ページに Fit** させて配置し、Project Name・Generated Date を付記してダウンロードする。
+
+- **用紙は A4 固定**とし、**画像のアスペクト比で縦向き / 横向きを決める**（横長の Workflow を縦向きに収めると縮小率が過大になるため）。用紙サイズを選ばせないのは、印刷・共有先として最も一般的な単一の既定に絞るためである。
+- **日本語の Project Name の扱い**: PDF 組版の標準フォントは Latin-1（WinAnsi）相当の文字しか持たないため、日本語の Project Name をそのままテキストとして描くと文字化けする。**WinAnsi で描けない文字を含むテキストは、ブラウザのシステムフォントで画像化して PDF に埋め込む**。CJK フォントを同梱すると数 MB 規模の増加となり、軽量に保つ方針（NFR-004）と噛み合わないためである。
+- 巨大 Workflow の複数ページ分割は MVP 後の拡張候補（development-roadmap §4）であり、スコープ外。
 
 ### 8.3 Export 時に非表示にする UI
 
 Handles / Selection Border / MiniMap / Controls / Inspector / Toolbar / Grid（AC-018）。
+
+**画像化の対象は Canvas の Viewport 要素（Node と Edge を載せている描画レイヤー）に限定する**。MiniMap / Controls / Grid はこの要素の外側に置かれているため、この要素だけを撮れば個別に非表示化しなくても写り込まない。Inspector / Toolbar も同様に Canvas の外側にある。したがって Export 表示への切替が実際に抑止するのは、**Node / Edge 自身に描かれる Handles と Selection Border**（および選択に伴う強調表示）である。切替の伝達方法は §2.4 の (e) に従う。
+
+### 8.4 Canvas と Export の受け渡し
+
+React Flow は `canvas` モジュールへ封じ込められており（§2.2 の依存方向）、feature モジュールどうしは直接 import しない（§2.1）。そのため Export に必要な次の 2 つは、`export` の application がポート（`CanvasSourcePort`。§2.3）として定義し、**`canvas` 側が実装を提供し、composition root が両者を束ねる**。
+
+| 必要な情報・操作 | 提供側 | 理由 |
+|---|---|---|
+| 全 Node の外接矩形（Bounding Box） | `canvas` | Node の実測サイズを持つのは React Flow だけであり、Domain Model は位置しか持たない（§3.2） |
+| Export 表示への切替と復帰 | `canvas` | Handles / Selection Border の描画は Canvas の Custom Node の責務であり、`export` から DOM を直接操作させない |
+
+`export` の application は `CanvasSourcePort` / `CanvasImagePort` / `PdfComposerPort` / `ExportFilePort` の 4 ポートのみに依存し、React Flow の型も DOM も知らない。
 
 ## 9. Prompt Generator（FR-019〜022, AC-020〜023）
 
@@ -474,9 +524,11 @@ Handles / Selection Border / MiniMap / Controls / Inspector / Toolbar / Grid（A
 | `## Notifications` | notification ノードの provider / recipient / message |
 | `## Constraints` | ai ノードの constraints、promptSettings.additionalInstructions |
 | `## Notes` | note ノードの内容（コメントとして。FR-022） |
-| `## Open Questions` | Flow Review の WARNING / INFO を未確定事項として転記。**Flow Review（§10）が未実装の段階では該当データが無いため、本セクションは省略される** |
+| `## Open Questions` | Flow Review の WARNING / INFO を未確定事項として転記する構想。**MVP では Flow Review（§10）は実装済みだが Prompt へは未連携であり、本セクションは常に省略される**（理由は下記） |
 | `## Acceptance Criteria` | Workflow の構造から機械的に導出する。**Condition の各分岐について「〜が〜の場合に〜が実行される」、End ノードについて「〜に到達した場合、〜」の形の条件文を生成する**（MVP の確定内容。これ以外の受け入れ条件は生成しない） |
 | `Implementation target: <Target>` | promptSettings.target（§9.3） |
+
+**`## Open Questions` を MVP で連携しない理由**: (1) Flow Review は手動実行であり結果が Domain Model の現状と乖離しうるため、既に直した指摘が Prompt に残る恐れがある、(2) Review のメッセージは日本語固定である一方、Prompt は ja / en を切り替える契約（§9.3）であり、そのまま転記すると en Prompt に日本語が混入する。両者の解消は MVP 後の課題とする（development-roadmap §4）。
 
 `## Workflow`（手順）の生成規則:
 
@@ -500,6 +552,7 @@ Handles / Selection Border / MiniMap / Controls / Inspector / Toolbar / Grid（A
 
 - 入力は Domain Model のみ。Rule-based（外部 AI 不使用）で解析し、ERROR / WARNING / INFO の 3 段階で結果を返す純関数として実装する。
 - Review Flow ボタンで実行し、Review Panel に件数サマリと問題一覧を表示する。ステータスバーへサマリを反映する（§4.3）。
+- **到達可能性を辿るルール（RV-W06 / RV-W07）は訪問済みノードの集合を持ち、到達済みのノードへ再び来たらそこで探索を打ち切る**。§5.2 で Cycle を禁止していないため、打ち切らないと Loop を含む Workflow で解析が停止しない（§9.2 の手順展開と同じ理由）。
 
 ### 10.2 ルール一覧
 
@@ -519,7 +572,18 @@ Handles / Selection Border / MiniMap / Controls / Inspector / Toolbar / Grid（A
 | RV-I02 | INFO | 重複実行対策が記載されていない |
 | RV-I03 | INFO | Logging について記載がない |
 
-RV-W02〜W05 が「必須 Node 設定の欠落」（AC-028）に対応する。RV-I01〜I03 の判定条件（何をもって「記載あり」とするか）: （要確認）— MVP では integration / action ノードや notes に該当記述がない場合に一律で表示する簡易判定とする。
+RV-W02〜W05 が「必須 Node 設定の欠落」（AC-028）に対応する。
+
+**RV-W06 の解釈**: 「その Trigger を起点として、どの End ノードへも到達できない」場合に、**Trigger 単位で 1 件**出す。到達しない枝（デッドエンド）を個別に列挙するのではない。列挙方式にすると 1 つの構造的欠陥に対して指摘が大量に増え、Panel が読めなくなるためである。
+
+**RV-I01〜I03 の判定条件**（何をもって「記載あり」とするか）を次に確定する。
+
+| 観点 | 確定内容 |
+|---|---|
+| 適用条件 | **integration または action ノードが 1 つ以上ある**ときのみ評価する。外部呼び出しも処理も持たない Workflow に対して非機能の指摘を常時 3 件出すのはノイズになるため |
+| 検索対象 | **integration / action / note ノードの `title` / `description` / `notes` / `config` の文字列値**を連結したテキスト |
+| 判定 | ルールごとに定めたキーワードが 1 つも現れなければ 1 件出す。**特定ノードに紐づく指摘ではないため対象 Node（`nodeId`）を持たない**（§10.3 のクリック移動の対象外になる） |
+| 照合 | ASCII のキーワードは**単語境界で照合**する（`log` が `logic` に誤ヒットしないようにするため）。日本語のキーワードは部分一致で照合する |
 
 ### 10.3 Review UI（FR-024）
 
@@ -530,10 +594,11 @@ RV-W02〜W05 が「必須 Node 設定の欠落」（AC-028）に対応する。R
 ## 11. Undo / Redo（FR-005, US-008）
 
 - 履歴対象: Node の追加・削除・移動・編集、Edge の追加・削除・編集。
-- 履歴対象外: Viewport の Zoom / Pan、選択状態、パネル開閉、promptSettings の変更（（要確認）— promptSettings は初期要求の履歴対象一覧に含まれないため対象外とする）。
-- 実装は zundo（Zustand middleware）で store の `nodes` / `edges` のみを追跡する。
-- ドラッグ移動は 1 ドラッグ = 履歴 1 件、Inspector 編集は §6 の確定単位で 1 件とする。
-- 履歴保持件数の上限: （要確認）— 初期要求に定義なし。
+- 履歴対象外: Viewport の Zoom / Pan、選択状態、パネル開閉、`reviewFindings` / `nodeFocusRequest` / `inspectorFocusRequest`（§2.4）、promptSettings の変更（（要確認）— promptSettings は初期要求の履歴対象一覧に含まれないため対象外とする）。
+- 実装は zundo（Zustand middleware）で store の `nodes` / `edges` のみを追跡する。`nodes` と `edges` を同時に変える操作は 1 回の更新にまとめ、履歴 1 件に収める（§2.4）。
+- **ドラッグ移動は 1 ドラッグ = 履歴 1 件**とする。これを、**ドラッグ中は Domain Model を更新せず（React Flow の内部状態だけが動く）、ドラッグ終了時に確定位置を 1 回だけ Domain Model へ反映する**方式で実現する。移動量や時間で区切る方式だと、長いドラッグが複数件へ割れて Ctrl+Z が何度も必要になるためである。**ドラッグ前後で位置が変わっていなければ何も記録しない**（クリック選択のたびに履歴が増えるのを避ける）。
+- **Inspector 編集は、編集対象のフィールド単位 + 短い時間窓でまとめて履歴 1 件**とする（§6 の確定単位）。時間だけで区切ると、続けざまに行った別フィールド・別ノードの編集まで 1 件に混ざり、取り消しの粒度がユーザーの認識とずれるためである。
+- **履歴保持件数の上限は 100 件**とする。1 件が保持するのは Node / Edge の配列 2 本のみで、store を非破壊更新するため変化のない要素は履歴間で同一参照が共有される。メモリへの影響が小さいので、実用上「取り消せない」と感じない件数を確保する。
 
 ## 12. API 設計（外部契約）
 

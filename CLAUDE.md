@@ -22,8 +22,8 @@ React 19 + TypeScript + Vite / @xyflow/react / Zustand + zundo / Zod / Tailwind 
 - `npm run build` — ビルド（tsc -b && vite build）
 - `npm run lint` — Lint
 - `npm run preview` — ビルド結果のプレビュー
-- `npm run test` — 単体テスト（Vitest、実装済み）
-- `npm run test:e2e` — E2E（Playwright、設定済み。テスト本体は Phase 5 で追加。初回実行前に `npx playwright install`）
+- `npm run test` — 単体テスト（Vitest。`environment: 'node'` で jsdom は入れていないため DOM を要するテストは書かない）
+- `npm run test:e2e` — E2E（Playwright。`e2e/mainFlow.spec.ts` の主要導線 1 本。**初回実行前に `npx playwright install`**、実行前に `npm run build` が必要）
 - `npm run format` / `npm run format:check` — Prettier
 
 Node.js は 24 系。CI（`.github/workflows/deploy.yml`）は Pages デプロイ専用で lint / test を含まないため、コミット前に `format:check` → `lint` → `test` → `build` をローカルで実行する。
@@ -39,7 +39,8 @@ Node.js は 24 系。CI（`.github/workflows/deploy.yml`）は Pages デプロ�
 
 ### 開発順序
 
-- docs/development-roadmap.md の Phase 0〜8 に従う。完了判定は AC/FR ID を参照する
+- **MVP（docs/development-roadmap.md の Phase 0〜8）は完了済み**（2026-09-08）。以降の着手対象は roadmap §4「MVP 後の拡張候補」から選ぶ
+- 完了判定は AC/FR ID を参照する
 - 「Phase 2」という語は多義のため、MVP 後の機能群は「MVP 後の拡張候補（roadmap §4）」と表現する
 
 ### 永続文書の所在

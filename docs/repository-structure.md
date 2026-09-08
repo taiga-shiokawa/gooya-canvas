@@ -57,17 +57,19 @@ src/
    └─ shared/               # 複数モジュール共有（Zustand store 基盤・共通 UI・ユーティリティ）
 ```
 
-上表は 8 モジュールの**最終形**であり、ディレクトリを先に全部切ることはしない（空ディレクトリ禁止 — §2.1）。Phase 0〜5 完了時点で実在するのは次だけで、残りは担当フェーズの実装時に作成する（フェーズ対応は development-roadmap.md）:
+上表は 8 モジュールの**最終形**であり、ディレクトリを先に全部切ることはしない（空ディレクトリ禁止 — §2.1）。**MVP（Phase 0〜8）完了時点で 8 モジュールすべてが実在する**。各モジュールの層構成は次のとおり（フェーズ対応は development-roadmap.md）:
 
-- `src/app/`（App シェル + ポート具象の組み立て）、`src/main.tsx`、`src/index.css`
+- `src/app/`（App シェル + ポート具象の組み立て + ショートカット配線）、`src/main.tsx`、`src/index.css`
 - `src/modules/workflow/`: `domain/` + `index.ts`
 - `src/modules/canvas/`: `application/` + `presentation/`（`presentation/nodes/` に Custom Node 一式）+ `index.ts`
 - `src/modules/inspector/`: `application/` + `presentation/` + `index.ts`
 - `src/modules/project/`: `application/`（+ `ports/`）+ `infrastructure/` + `presentation/` + `assets/samples/` + `index.ts`
+- `src/modules/export/`: `application/`（+ `ports/`）+ `infrastructure/` + `presentation/` + `index.ts`
 - `src/modules/prompt/`: `domain/` + `application/`（+ `ports/`）+ `infrastructure/` + `presentation/` + `index.ts`
-- `src/modules/shared/`: `application/` + `index.ts`
+- `src/modules/review/`: `domain/` + `application/` + `presentation/` + `index.ts`
+- `src/modules/shared/`: `domain/` + `application/` + `index.ts`
 
-`export`（Phase 7）と `review`（Phase 6）の各モジュールディレクトリは未作成である。
+新しい層・新しいモジュールを足す場合は本書と architecture.md の更新を伴う（§2 冒頭）。
 
 `presentation/` 配下は、部品数が増えた層に限りサブディレクトリで分類してよい（`canvas/presentation/nodes/` が該当）。サブディレクトリはレイヤーではないため、依存方向の制約（§5.1）は親の `presentation` として扱われる。
 
@@ -172,7 +174,11 @@ architecture §3.2 の 5 制約は `eslint.config.js` に**導入済み**で、`
 | `RecoveryStoragePort` | `src/modules/project/application/ports/` | `src/modules/project/infrastructure/` |
 | `CanvasImagePort` | `src/modules/export/application/ports/` | `src/modules/export/infrastructure/` |
 | `PdfComposerPort` | `src/modules/export/application/ports/` | `src/modules/export/infrastructure/` |
+| `ExportFilePort` | `src/modules/export/application/ports/` | `src/modules/export/infrastructure/` |
+| `CanvasSourcePort` | `src/modules/export/application/ports/` | **`src/modules/canvas/presentation/`**（唯一の例外。下記参照） |
 | `ClipboardPort` | `src/modules/prompt/application/ports/` | `src/modules/prompt/infrastructure/` |
+
+**`CanvasSourcePort` だけは具象が infrastructure ではない。** 提供する情報（全 Node / Edge の Bounding Box）と操作（Export 表示への切替）が React Flow の実測状態に依存し、React Flow は canvas モジュールに封じ込められている（§5.1 #5）ため、canvas の presentation が実装する。canvas と export は互いを import せず（同 #4）、composition root が両者を繋ぐ（趣旨は functional-design §8.4）。
 
 （ポートのシグネチャ・用途は functional-design §2.3 が所有。）
 
@@ -202,7 +208,9 @@ architecture §3.2 の 5 制約は `eslint.config.js` に**導入済み**で、`
 | Unit（Vitest） | **ソース隣接（co-location）**: `<対象>.test.ts` / `<対象>.test.tsx` | 重点対象（Zod validation / serialization / migration / Prompt 生成 / Review ルール — architecture §6.1）は `domain/` の純関数隣接に置き、DOM モックなしで動くことを維持する |
 | E2E（Playwright） | リポジトリ直下 `e2e/` | 主要導線（New → Add → Connect → Edit → Save → Open → Generate Prompt）を最優先。Playwright 設定は `playwright.config.ts`（ルート） |
 
-Phase 5 完了時点の実績: Unit テストは co-location で 12 ファイル（`workflow/domain/` に 5、`canvas/` に 2、`inspector/application/` に 1、`project/application/` に 3、`prompt/domain/` に 1）。E2E は `e2e/mainFlow.spec.ts` の 1 本で、主要導線（New → Add → Connect → Edit → Save → Open → Generate Prompt）を通す。
+MVP（Phase 0〜8）完了時点の実績: Unit テストは co-location で 26 ファイル / 384 件。E2E は `e2e/mainFlow.spec.ts` の 1 本で、主要導線（New → Add → Connect → Edit → Save → Open → Generate Prompt）を通す。
+
+Vitest は `environment: 'node'`（jsdom を入れていない）ため、**DOM を要する振る舞い**（Context Menu の開閉、Inspector へのフォーカス移動、ショートカットの実配線、Export の画像化）は Unit テストでは担保できない。これらは実装時のブラウザ検証と E2E で確認している。恒久的な回帰検知が必要になった時点で、E2E を足すか jsdom 環境を追加するかを判断する。
 
 `tests/` / `__tests__/` ディレクトリ方式は採用しない。テスト用フィクスチャが複数テストで共有される場合のみ `e2e/fixtures/`（E2E 用）または対象モジュール内 `__fixtures__/`（Unit 用）を置く。
 
