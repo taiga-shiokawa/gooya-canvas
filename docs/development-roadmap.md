@@ -13,7 +13,7 @@
 
 Phase 0 → 8 の順に実装する。並行可否は §2 を参照。
 
-**現在地**: Phase 0 / Phase 1 は完了（2026-09-07）。次は Phase 2（Custom Nodes）。
+**現在地**: Phase 0 / Phase 1 / Phase 2 は完了（Phase 0〜1: 2026-09-07、Phase 2: 2026-09-08）。次は Phase 3（Inspector）と Phase 4（Persistence）。この 2 つは §2 のとおり相互独立のため並行して進める。
 
 ### Phase 0 — Project Setup（完了）
 
@@ -47,9 +47,15 @@ React Flow 配置、Node 追加・移動・削除、Edge 接続・削除、Zoom 
 
 **完了条件**: AC-001, AC-002, AC-003, AC-004, AC-005, AC-007, AC-008, AC-009（FR-002, FR-003）および FR-007 のうち自己接続禁止。FR-007 の残余は Phase 2。
 
-### Phase 2 — Custom Nodes
+### Phase 2 — Custom Nodes（完了）
 
 11 種の Node Type（FR-001）の Custom Node 実装と、Node Type に応じた接続ルール（FR-007 の残余 — Trigger は incoming 0、End は outgoing 0 等）。
+
+補足（実装済みの前提）:
+
+- ノード種別カタログ（表示名・推奨 config キー・初期 config）と接続ルールは `workflow` の domain が所有する。canvas / inspector / review はこれを共有する
+- functional-design §3.2 の型定義は本フェーズで全て揃えた（`WorkflowProject` ほか）。Zod スキーマと migration レジストリは Phase 4
+- store は MVP 完成形の slice 構成（metadata / viewport / promptSettings / isDirty / 選択状態）まで拡張済み。選択状態を `canvas` から store へ publish するのは Phase 3
 
 **完了条件**: FR-001, FR-007（残余）, FR-008 を満たすこと（初期要求メモ §43 は 8 種のみ列挙しているが、FR-001 の 11 種を正とする）
 

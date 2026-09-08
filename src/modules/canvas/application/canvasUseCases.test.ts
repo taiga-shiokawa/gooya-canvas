@@ -1,25 +1,29 @@
 import { useWorkflowStore } from '@/modules/shared'
-import type { WorkflowEdge, WorkflowNode } from '@/modules/workflow'
+import type {
+  WorkflowEdge,
+  WorkflowNode,
+  WorkflowNodeKind,
+} from '@/modules/workflow'
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   addNode,
   connectNodes,
+  isConnectionAllowed,
   moveNode,
   removeEdges,
   removeNodes,
 } from './canvasUseCases'
 
 function seed(nodes: WorkflowNode[], edges: WorkflowEdge[] = []) {
-  useWorkflowStore.setState({ nodes, edges })
+  useWorkflowStore.setState({ nodes, edges, isDirty: false })
 }
 
-function node(id: string, x = 0, y = 0): WorkflowNode {
-  return {
-    id,
-    type: 'action',
-    position: { x, y },
-    data: { title: id, config: {} },
-  }
+function node(
+  id: string,
+  type: WorkflowNodeKind = 'action',
+  config: Record<string, unknown> = {},
+): WorkflowNode {
+  return { id, type, position: { x: 0, y: 0 }, data: { title: id, config } }
 }
 
 function edge(id: string, source: string, target: string): WorkflowEdge {
@@ -31,32 +35,46 @@ beforeEach(() => {
 })
 
 describe('addNode', () => {
-  it('ドロップ位置と種別・タイトルを保持したノードを追加する', () => {
-    addNode({ kind: 'trigger', position: { x: 120, y: 40 }, title: 'Trigger' })
+  it('ドロップ位置と種別を保持したノードを追加する', () => {
+    addNode({ kind: 'trigger', position: { x: 120, y: 40 } })
 
     const { nodes } = useWorkflowStore.getState()
     expect(nodes).toHaveLength(1)
     expect(nodes[0]).toMatchObject({
       type: 'trigger',
       position: { x: 120, y: 40 },
-      data: { title: 'Trigger', config: {} },
+      data: { title: 'Trigger' },
     })
     expect(nodes[0].id).not.toBe('')
   })
 
+  it('種別ごとの初期 config を投入する', () => {
+    addNode({ kind: 'condition', position: { x: 0, y: 0 } })
+
+    expect(useWorkflowStore.getState().nodes[0].data.config).toEqual({
+      branches: ['Yes', 'No'],
+    })
+  })
+
   it('追加ごとに一意な ID を採番する', () => {
-    addNode({ kind: 'wait', position: { x: 0, y: 0 }, title: 'Wait' })
-    addNode({ kind: 'wait', position: { x: 0, y: 0 }, title: 'Wait' })
+    addNode({ kind: 'wait', position: { x: 0, y: 0 } })
+    addNode({ kind: 'wait', position: { x: 0, y: 0 } })
 
     const { nodes } = useWorkflowStore.getState()
     expect(new Set(nodes.map((n) => n.id)).size).toBe(2)
+  })
+
+  it('dirty を立てる', () => {
+    addNode({ kind: 'action', position: { x: 0, y: 0 } })
+
+    expect(useWorkflowStore.getState().isDirty).toBe(true)
   })
 })
 
 describe('moveNode', () => {
   it('対象ノードの位置だけを更新する', () => {
-    seed([node('a', 0, 0), node('b', 50, 50)])
-
+    seed([node('a'), node('b')])
+    moveNode('b', { x: 50, y: 50 })
     moveNode('a', { x: 200, y: 300 })
 
     const { nodes } = useWorkflowStore.getState()
@@ -72,15 +90,47 @@ describe('connectNodes', () => {
   it('source / target と handle を保持した Edge を追加する', () => {
     seed([node('a'), node('b')])
 
-    connectNodes({ source: 'a', target: 'b', sourceHandle: 'Yes' })
+    connectNodes({ source: 'a', target: 'b', targetHandle: 'in' })
 
     const { edges } = useWorkflowStore.getState()
     expect(edges).toHaveLength(1)
     expect(edges[0]).toMatchObject({
       source: 'a',
       target: 'b',
-      sourceHandle: 'Yes',
+      targetHandle: 'in',
     })
+  })
+
+  it('Condition から出る Edge は分岐名を label の初期値にする', () => {
+    seed([node('c', 'condition', { branches: ['Yes', 'No'] }), node('b')])
+
+    connectNodes({ source: 'c', target: 'b', sourceHandle: 'No' })
+
+    expect(useWorkflowStore.getState().edges[0]).toMatchObject({
+      sourceHandle: 'No',
+      label: 'No',
+    })
+  })
+
+  it('Condition 以外は sourceHandle があっても label を付けない', () => {
+    seed([node('a'), node('b')])
+
+    connectNodes({ source: 'a', target: 'b', sourceHandle: 'out' })
+
+    expect(useWorkflowStore.getState().edges[0].label).toBeUndefined()
+  })
+
+  it.each<[string, WorkflowNodeKind, WorkflowNodeKind]>([
+    ['Trigger への incoming', 'action', 'trigger'],
+    ['End からの outgoing', 'end', 'action'],
+    ['Note を source に持つ接続', 'note', 'action'],
+    ['Note を target に持つ接続', 'action', 'note'],
+  ])('%s は追加しない', (_label, sourceKind, targetKind) => {
+    seed([node('a', sourceKind), node('b', targetKind)])
+
+    connectNodes({ source: 'a', target: 'b' })
+
+    expect(useWorkflowStore.getState().edges).toHaveLength(0)
   })
 
   it('自分自身への接続は追加しない', () => {
@@ -89,6 +139,25 @@ describe('connectNodes', () => {
     connectNodes({ source: 'a', target: 'a' })
 
     expect(useWorkflowStore.getState().edges).toHaveLength(0)
+  })
+
+  it('存在しないノードへの接続は追加しない', () => {
+    seed([node('a')])
+
+    connectNodes({ source: 'a', target: 'ghost' })
+
+    expect(useWorkflowStore.getState().edges).toHaveLength(0)
+  })
+})
+
+describe('isConnectionAllowed', () => {
+  it('接続ルールの判定だけを返し store を変更しない', () => {
+    seed([node('a'), node('t', 'trigger')])
+
+    expect(isConnectionAllowed('a', 't')).toBe(false)
+    expect(isConnectionAllowed('t', 'a')).toBe(true)
+    expect(useWorkflowStore.getState().edges).toHaveLength(0)
+    expect(useWorkflowStore.getState().isDirty).toBe(false)
   })
 })
 
