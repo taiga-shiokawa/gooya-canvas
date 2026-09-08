@@ -25,6 +25,7 @@ gooya-canvas/
 ├─ tsconfig*.json           # TypeScript 設定（`tsconfig.app.json` の paths で `@/` → `./src/` を定義。§4.4 / §8）
 ├─ eslint.config.js         # ESLint 設定（§5 の import zones をここに記述）
 ├─ playwright.config.ts     # Playwright 設定（テスト本体は `e2e/` に置く — §6.1。Phase 5）
+├─ .gitattributes           # 改行コードを LF に統一する（development-guidelines §4.2）
 ├─ .prettierrc              # Prettier 設定（設定値は development-guidelines §4.2 が所有）
 ├─ .prettierignore          # Prettier 除外設定（除外対象と理由は development-guidelines §4.2 が所有）
 ├─ README.md                # リポジトリの入口（プロダクト概要・開発コマンド・docs 索引・アーキテクチャ要点）
