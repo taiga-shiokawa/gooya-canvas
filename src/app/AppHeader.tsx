@@ -1,11 +1,12 @@
 import { ProjectDialog, useProjectCommands } from '@/modules/project'
 import { PromptPanel } from '@/modules/prompt'
+import { ReviewPanel } from '@/modules/review'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { projectUseCases, promptUseCases } from './ports'
+import { projectUseCases, promptUseCases, reviewUseCases } from './ports'
 
 // Header（docs/functional-design.md §4.2）。
-// File メニューは Phase 4（Persistence）、Generate Prompt は Phase 5。
-// Export PDF / PNG は Phase 7、Main Actions の Review Flow は Phase 6 で埋める。
+// File メニューは Phase 4（Persistence）、Generate Prompt は Phase 5、Review Flow は Phase 6。
+// Export PDF / PNG は Phase 7 で埋める。
 //
 // ヘッドレス UI ライブラリは未導入のため、メニューは自前実装で
 // Esc クローズ・外側クリック・aria 属性・フォーカス復帰を担保する
@@ -19,6 +20,7 @@ const MENU_ITEM_CLASS =
 export function AppHeader() {
   const commands = useProjectCommands(projectUseCases)
   const [promptOpen, setPromptOpen] = useState(false)
+  const [reviewOpen, setReviewOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -112,6 +114,17 @@ export function AppHeader() {
       <div className="ml-auto flex items-center gap-2">
         <button
           type="button"
+          onClick={() => {
+            // 開くたびに最新の Workflow で解析し直す（結果は store が保持する）
+            reviewUseCases.run()
+            setReviewOpen(true)
+          }}
+          className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500"
+        >
+          Review Flow
+        </button>
+        <button
+          type="button"
           onClick={() => setPromptOpen(true)}
           className="rounded border border-slate-800 bg-slate-800 px-3 py-1.5 text-sm text-white hover:bg-slate-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500"
         >
@@ -124,6 +137,12 @@ export function AppHeader() {
         <PromptPanel
           useCases={promptUseCases}
           onClose={() => setPromptOpen(false)}
+        />
+      ) : null}
+      {reviewOpen ? (
+        <ReviewPanel
+          useCases={reviewUseCases}
+          onClose={() => setReviewOpen(false)}
         />
       ) : null}
     </header>
