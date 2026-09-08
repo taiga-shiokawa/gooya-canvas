@@ -4,12 +4,10 @@ import {
   SCHEMA_VERSION,
   type WorkflowProject,
 } from '@/modules/workflow'
-// サンプルは `?raw` で文字列として取り込み、通常の Open と同じ
-// JSON.parse → Zod validation → migration を通す（repository-structure §6.2 / NFR-005）
-import sampleProjectJson from '../assets/samples/interview-evaluation-reminder.gooya-canvas.json?raw'
 import type { ProjectFilePort } from './ports/ProjectFilePort'
 import { toProjectFileName } from './projectFileName'
 import { deserializeProject, serializeProject } from './projectSerialization'
+import { findWorkflowTemplate, REFERENCE_TEMPLATE_ID } from './templateCatalog'
 
 // New / Save / Open のユースケース（docs/functional-design.md §7.1〜§7.3）。
 // store 更新の唯一の入口であり、presentation は store の setter を直接呼ばない。
@@ -36,8 +34,14 @@ export type ProjectUseCases = {
   /** File > Open Project（FR-013 / AC-013〜015 / §7.3）。 */
   openProject: () => Promise<OpenProjectResult>
   /**
+   * File > New from Template（TP-3）。dirty の確認は presentation 側で済ませてから呼ぶ。
+   * 未知の id・テンプレートの validation 失敗では store を変更せず false を返す。
+   */
+  loadTemplate: (templateId: string) => boolean
+  /**
    * 初回起動時のサンプル読込（FR-015 / §7.6）。
-   * Crash Recovery が無いため「store が空のとき」を初回起動とみなす。
+   * Reference Workflow はテンプレートカタログの 1 件（`REFERENCE_TEMPLATE_ID`）である。
+   * 「store が空のとき」を初回起動とみなす（復旧データの有無は startupUseCases が見る）。
    * 読み込んだら true、既に内容があるか読込に失敗したら false を返す。
    */
   loadSampleProjectIfEmpty: () => boolean
@@ -92,11 +96,26 @@ export function createProjectUseCases(
       return 'opened'
     },
 
+    loadTemplate: (templateId) => {
+      const template = findWorkflowTemplate(templateId)
+      if (!template) return false
+
+      // Open と同じ経路を通す。壊れたテンプレートで既存の Canvas を壊さない（§7.3 と同じ方針）
+      const result = deserializeProject(template.json)
+      if (!result.ok) return false
+
+      replaceWith(result.project)
+      return true
+    },
+
     loadSampleProjectIfEmpty: () => {
       const state = useWorkflowStore.getState()
       if (state.nodes.length > 0 || state.edges.length > 0) return false
 
-      const result = deserializeProject(sampleProjectJson)
+      const template = findWorkflowTemplate(REFERENCE_TEMPLATE_ID)
+      if (!template) return false
+
+      const result = deserializeProject(template.json)
       if (!result.ok) return false
 
       replaceWith(result.project)

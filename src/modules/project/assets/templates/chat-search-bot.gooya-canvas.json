@@ -1,0 +1,237 @@
+{
+  "schemaVersion": "1.0",
+  "metadata": {
+    "id": "9d5c2a18-7f43-4e90-8b16-3c7e5a2d8f64",
+    "name": "チャット起点 自然文検索 → 出典付き回答",
+    "description": "Teams の発話から検索条件を LLM が構造化し、決定論的にフィルタして上位 N 件を出典つきで返す。絞り込みを LLM に任せない構成。",
+    "createdAt": "2026-09-08T00:00:00.000Z",
+    "updatedAt": "2026-09-08T00:00:00.000Z"
+  },
+  "viewport": { "x": 180, "y": 20, "zoom": 0.6 },
+  "nodes": [
+    {
+      "id": "note-about",
+      "type": "note",
+      "position": { "x": 1120, "y": 40 },
+      "data": {
+        "title": "このテンプレートについて",
+        "description": "台帳を Teams から自然文で検索させる",
+        "config": {},
+        "notes": "「シートを開かずに Teams から聞けるようにする」形の雛形です。設計の芯は 1 つ — 条件の解釈だけを LLM に任せ、絞り込みと件数の計算は決定論的なコードで行う。"
+      }
+    },
+    {
+      "id": "note-llm-boundary",
+      "type": "note",
+      "position": { "x": 1120, "y": 340 },
+      "data": {
+        "title": "LLM に絞り込みをさせない",
+        "config": {},
+        "notes": "上位 N 件で切る処理を LLM の後処理に任せると、11 件目以降を静かに取りこぼす（実案件で 5 名の欠落を実測）。総件数の算出と件数制限はコード側で確定させ、LLM には「理由の言語化」だけをさせる。件数を偽らせないために、総件数と結果配列を分けて返す。"
+      }
+    },
+    {
+      "id": "note-idempotency",
+      "type": "note",
+      "position": { "x": 1120, "y": 660 },
+      "data": {
+        "title": "重複実行と失敗の扱い",
+        "config": {},
+        "notes": "検索は読み取り専用なので重複実行しても副作用がなく冪等である。副作用のない検索ツールはリトライ 1 回まで許してよいが、下書き作成などの副作用を足す場合はリトライを禁止し、二重作成の防止を別に入れる。実行ログには質問文・ヒット件数・返した件数を残す。"
+      }
+    },
+    {
+      "id": "trigger-chat",
+      "type": "trigger",
+      "position": { "x": 440, "y": 40 },
+      "data": {
+        "title": "Teams での発話",
+        "description": "@メンションまたはチャットでの質問",
+        "config": {
+          "system": "Microsoft Teams / Copilot Studio",
+          "event": "ユーザーの自然文の質問"
+        },
+        "notes": "定期実行のフローは Copilot Studio のツールとして登録できない。プッシュ型（定期）とプル型（発話）が両方必要な場合はフローを 2 本に分ける。"
+      }
+    },
+    {
+      "id": "ai-extract",
+      "type": "ai",
+      "position": { "x": 440, "y": 220 },
+      "data": {
+        "title": "検索条件を構造化抽出",
+        "config": {
+          "task": "自然文の質問から検索パラメータを抽出する",
+          "input": "ユーザーの発話",
+          "expectedOutput": "キーワード / ステータス / 期間 などの固定パラメータ",
+          "constraints": "明記されていない項目は推測せず「該当なし」を表すセンチネル値を入れる"
+        },
+        "notes": "パラメータを「省略可」にすると Copilot Studio の入力一覧から消えてしまい、「必須」にすると値を捏造する。どちらも避けるため、必須にしたうえで「該当なしは \"-\" を渡す」というセンチネル規約を決める。"
+      }
+    },
+    {
+      "id": "act-normalize-params",
+      "type": "action",
+      "position": { "x": 440, "y": 400 },
+      "data": {
+        "title": "パラメータを正規化",
+        "config": {
+          "operation": "センチネルを空文字へ、大文字小文字を揃える"
+        },
+        "notes": "空パラメータは「その条件を無視する」として扱う。フィルタ式の側で「空なら素通し」の分岐を書く。"
+      }
+    },
+    {
+      "id": "ds-ledger",
+      "type": "dataSource",
+      "position": { "x": 440, "y": 580 },
+      "data": {
+        "title": "台帳を全件取得",
+        "description": "1 回の呼び出しで必要な列だけ読む",
+        "config": { "provider": "Google Sheets / Excel Online (Business)" },
+        "notes": "Excel Online (Business) は既定 256 行しか返さない。改ページを ON にしてしきい値を 1000 にする。標準コネクタが列を落とす場合（110 列中 87 列が消えた実例がある）は自前の Web App を挟んでブリッジする。機密列（給与・生年月日・メール）は出力時に除外するのではなく、読み取り範囲そのものから外してメモリに載せない。"
+      }
+    },
+    {
+      "id": "act-filter",
+      "type": "action",
+      "position": { "x": 440, "y": 760 },
+      "data": {
+        "title": "決定論的に AND フィルタ",
+        "config": {
+          "operation": "パラメータの AND 条件で絞る。空の条件は素通しする"
+        },
+        "notes": "キーワードは複数列を連結した文字列への部分一致、期間は前方一致（yyyy/MM）といった形で実装する。表記ゆれは正規化辞書で吸収し、辞書に無い表現はその条件を捨てて注記へ残す。"
+      }
+    },
+    {
+      "id": "act-limit",
+      "type": "action",
+      "position": { "x": 440, "y": 940 },
+      "data": {
+        "title": "総件数を算出してから上位 N 件を切る",
+        "config": {
+          "operation": "total を先に確定し、返す列をホワイトリストで絞る"
+        },
+        "notes": "total と results を別のフィールドで返す。これがないと「10 件」と答えて残りを黙って捨てる回答になる。"
+      }
+    },
+    {
+      "id": "cond-empty",
+      "type": "condition",
+      "position": { "x": 440, "y": 1120 },
+      "data": {
+        "title": "該当は 1 件以上か？",
+        "config": { "branches": ["1 件以上", "0 件"] }
+      }
+    },
+    {
+      "id": "ai-explain",
+      "type": "ai",
+      "position": { "x": 240, "y": 1360 },
+      "data": {
+        "title": "適合理由と出典を言語化",
+        "config": {
+          "task": "各件がなぜ条件に合うかを説明し、出典を添える",
+          "input": "フィルタ済みの上位 N 件",
+          "expectedOutput": "件ごとの適合理由と、発言者・日時・元データへのリンク",
+          "constraints": "渡されたデータに無い事実を書かない。件数を増減させない"
+        },
+        "notes": "出典（RefId・URL・日時）を必ず添えさせる。データに無いことを聞かれたら「わからない」と答えさせ、台帳の場所を案内させる。更新依頼は拒否させる（このフローは読み取り専用）。"
+      }
+    },
+    {
+      "id": "notif-answer",
+      "type": "notification",
+      "position": { "x": 240, "y": 1560 },
+      "data": {
+        "title": "Adaptive Card で回答",
+        "config": {
+          "provider": "Microsoft Teams",
+          "recipient": "質問したユーザー",
+          "message": "該当 N 件（上位 M 件を表示）。他に X 件あります。",
+          "purpose": "検索結果の提示"
+        }
+      }
+    },
+    {
+      "id": "end-answered",
+      "type": "end",
+      "position": { "x": 240, "y": 1740 },
+      "data": {
+        "title": "回答完了",
+        "config": { "outcome": "Completed" }
+      }
+    },
+    {
+      "id": "notif-none",
+      "type": "notification",
+      "position": { "x": 700, "y": 1360 },
+      "data": {
+        "title": "該当なしと条件緩和の提案",
+        "config": {
+          "provider": "Microsoft Teams",
+          "recipient": "質問したユーザー",
+          "message": "条件に合うデータはありませんでした。条件を緩めると見つかるかもしれません。",
+          "purpose": "0 件であることの明示"
+        },
+        "notes": "0 件を「見つかりませんでした」で終わらせず、どの条件を緩めれば当たりそうかを示す。件数を偽らないことがこのパターンの信頼性を決める。"
+      }
+    },
+    {
+      "id": "end-none",
+      "type": "end",
+      "position": { "x": 700, "y": 1560 },
+      "data": {
+        "title": "該当なしで終了",
+        "config": { "outcome": "Completed（0 件）" }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-trigger-extract",
+      "source": "trigger-chat",
+      "target": "ai-extract"
+    },
+    {
+      "id": "e-extract-normalize",
+      "source": "ai-extract",
+      "target": "act-normalize-params"
+    },
+    {
+      "id": "e-normalize-ledger",
+      "source": "act-normalize-params",
+      "target": "ds-ledger"
+    },
+    { "id": "e-ledger-filter", "source": "ds-ledger", "target": "act-filter" },
+    { "id": "e-filter-limit", "source": "act-filter", "target": "act-limit" },
+    { "id": "e-limit-empty", "source": "act-limit", "target": "cond-empty" },
+    {
+      "id": "e-empty-some",
+      "source": "cond-empty",
+      "target": "ai-explain",
+      "sourceHandle": "1 件以上",
+      "label": "1 件以上"
+    },
+    {
+      "id": "e-empty-none",
+      "source": "cond-empty",
+      "target": "notif-none",
+      "sourceHandle": "0 件",
+      "label": "0 件"
+    },
+    {
+      "id": "e-explain-answer",
+      "source": "ai-explain",
+      "target": "notif-answer"
+    },
+    {
+      "id": "e-answer-end",
+      "source": "notif-answer",
+      "target": "end-answered"
+    },
+    { "id": "e-none-end", "source": "notif-none", "target": "end-none" }
+  ],
+  "promptSettings": { "target": "power-automate", "language": "ja" }
+}

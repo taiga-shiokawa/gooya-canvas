@@ -23,6 +23,13 @@ export {
   type StartupUseCases,
   type StartupUseCasesDeps,
 } from './application/startupUseCases'
+export {
+  REFERENCE_TEMPLATE_ID,
+  TEMPLATE_CATEGORY_LABELS,
+  WORKFLOW_TEMPLATES,
+  type WorkflowTemplate,
+  type WorkflowTemplateCategory,
+} from './application/templateCatalog'
 // infrastructure 具象は composition root が注入するためだけに公開する（§5.3 / AD-10）
 export { createBrowserProjectFilePort } from './infrastructure/browserProjectFilePort'
 export { createBrowserRecoveryStoragePort } from './infrastructure/browserRecoveryStoragePort'
@@ -30,6 +37,10 @@ export {
   ProjectDialog,
   type ProjectDialogState,
 } from './presentation/ProjectDialog'
+export {
+  TemplateGallery,
+  type TemplateGalleryState,
+} from './presentation/TemplateGallery'
 export {
   useProjectCommands,
   type ProjectCommands,

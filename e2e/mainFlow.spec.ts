@@ -95,7 +95,8 @@ test('主要導線: New → Add → Connect → Edit → Save → Open → Gener
   // --- New Project（FR-011） ---
   // サンプル読込直後は dirty ではないので確認ダイアログは挟まらない
   await page.getByRole('button', { name: 'File' }).click()
-  await page.getByRole('menuitem', { name: 'New' }).click()
+  // exact: true は「New from Template」と区別するために必要
+  await page.getByRole('menuitem', { name: 'New', exact: true }).click()
   await expect(page.locator('.react-flow__node')).toHaveCount(0)
 
   // --- Add Nodes（FR-001） ---
@@ -144,7 +145,8 @@ test('主要導線: New → Add → Connect → Edit → Save → Open → Gener
   // --- Open Project（FR-013 / AC-013 / AC-014） ---
   // 一度まっさらにしてから読み直し、保存内容が復元されることを確かめる
   await page.getByRole('button', { name: 'File' }).click()
-  await page.getByRole('menuitem', { name: 'New' }).click()
+  // exact: true は「New from Template」と区別するために必要
+  await page.getByRole('menuitem', { name: 'New', exact: true }).click()
   await expect(page.locator('.react-flow__node')).toHaveCount(0)
 
   const fileChooserPromise = page.waitForEvent('filechooser')

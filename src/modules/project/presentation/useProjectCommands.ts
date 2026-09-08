@@ -2,6 +2,7 @@ import { useWorkflowStore } from '@/modules/shared'
 import { useCallback, useState } from 'react'
 import type { ProjectUseCases } from '../application/projectUseCases'
 import type { ProjectDialogState } from './ProjectDialog'
+import type { TemplateGalleryState } from './TemplateGallery'
 
 // File メニューの各コマンドと、それに伴うダイアログ状態をまとめて持つフック。
 // presentation は store の購読とユースケース呼び出しだけを行い、判定ロジックは持たない。
@@ -17,17 +18,26 @@ const SAVE_FAILED_MESSAGE =
 
 const UNSAVED_CHANGES_MESSAGE = '未保存の変更があります。破棄して続行しますか？'
 
+/** テンプレートの読込に失敗したときの文言（TP-8）。同梱ファイルなので通常は起きない。 */
+const TEMPLATE_FAILED_MESSAGE =
+  'このテンプレートを読み込めませんでした。お手数ですが File > New から作成してください。'
+
 export type ProjectCommands = {
   newProject: () => void
   openProject: () => void
   saveProject: () => void
+  /** File > New from Template（TP-2）。dirty なら確認を挟んでからギャラリーを開く。 */
+  newFromTemplate: () => void
   /** null の間はダイアログを表示しない。ProjectDialog へそのまま渡す。 */
   dialog: ProjectDialogState | null
+  /** null の間はギャラリーを表示しない。TemplateGallery へそのまま渡す。 */
+  templateGallery: TemplateGalleryState | null
 }
 
 export function useProjectCommands(useCases: ProjectUseCases): ProjectCommands {
   const isDirty = useWorkflowStore((state) => state.isDirty)
   const [dialog, setDialog] = useState<ProjectDialogState | null>(null)
+  const [galleryOpen, setGalleryOpen] = useState(false)
 
   const closeDialog = useCallback(() => setDialog(null), [])
 
@@ -85,5 +95,36 @@ export function useProjectCommands(useCases: ProjectUseCases): ProjectCommands {
     if (useCases.saveProject() === 'invalid') showError(SAVE_FAILED_MESSAGE)
   }, [showError, useCases])
 
-  return { newProject, openProject, saveProject, dialog }
+  // dirty の確認は「ギャラリーを開く前」に出す。New / Open と同じ順序に揃えている。
+  // 確認したあとギャラリーを閉じた場合は何も破棄されずに終わる（安全側に外れる）。
+  const newFromTemplate = useCallback(() => {
+    confirmWhenDirty('テンプレートから開始', '破棄して選択', () => {
+      setGalleryOpen(true)
+    })
+  }, [confirmWhenDirty])
+
+  const templateGallery: TemplateGalleryState | null = galleryOpen
+    ? {
+        onSelect: (templateId) => {
+          setGalleryOpen(false)
+          if (!useCases.loadTemplate(templateId)) {
+            showError(TEMPLATE_FAILED_MESSAGE)
+          }
+        },
+        onSelectEmpty: () => {
+          setGalleryOpen(false)
+          useCases.newProject()
+        },
+        onClose: () => setGalleryOpen(false),
+      }
+    : null
+
+  return {
+    newProject,
+    openProject,
+    saveProject,
+    newFromTemplate,
+    dialog,
+    templateGallery,
+  }
 }

@@ -1,0 +1,256 @@
+{
+  "schemaVersion": "1.0",
+  "metadata": {
+    "id": "c41a7e92-3d58-4b06-9f1e-7a2c5d8b3041",
+    "name": "定期バッチ集計 → Teams カード通知",
+    "description": "時間主導トリガーで台帳を集計し、前回比つきの Adaptive Card を Teams へ配信する。社内案件で最も多い形（23 件中 9 件）。",
+    "createdAt": "2026-09-08T00:00:00.000Z",
+    "updatedAt": "2026-09-08T00:00:00.000Z"
+  },
+  "viewport": { "x": 180, "y": 20, "zoom": 0.6 },
+  "nodes": [
+    {
+      "id": "note-about",
+      "type": "note",
+      "position": { "x": 1080, "y": 40 },
+      "data": {
+        "title": "このテンプレートについて",
+        "description": "定期バッチ集計 → Teams 通知の骨格",
+        "config": {},
+        "notes": "週次・日次の集計レポートを Teams へ流す形の雛形です。各ノードの Notes に実案件で踏んだ注意点を書いてあります。不要なノードは削除し、config を自分の案件の値に置き換えてください。"
+      }
+    },
+    {
+      "id": "note-secrets",
+      "type": "note",
+      "position": { "x": 1080, "y": 320 },
+      "data": {
+        "title": "秘密情報の置き場所",
+        "config": {},
+        "notes": "Webhook URL・スプレッドシート ID・接続文字列はコードに書かず Script Properties（GAS）／Key Vault（Azure）／環境変数に置く。テンプレートにも実 URL を書かない。"
+      }
+    },
+    {
+      "id": "trigger-weekly",
+      "type": "trigger",
+      "position": { "x": 400, "y": 40 },
+      "data": {
+        "title": "週次バッチの起動",
+        "description": "毎週金曜の定時に起動する",
+        "config": {
+          "system": "Google Apps Script（時間主導トリガー）",
+          "event": "毎週金曜 19 時台"
+        },
+        "notes": "GAS の atHour() は「その時台のどこか」しか保証しない。分単位で確実に送るなら 0 時のスケジューラが .at() のワンタイムトリガーを予約する 2 段構えにする。隔週にしたい場合は everyWeeks(2) を使わない（位相が固定されて壊れる）。週次トリガー + 前回実行からの間隔ゲートで判定する。"
+      }
+    },
+    {
+      "id": "cond-guard",
+      "type": "condition",
+      "position": { "x": 400, "y": 220 },
+      "data": {
+        "title": "実行してよいか？",
+        "description": "営業日判定と多重実行ガードを通す",
+        "config": { "branches": ["実行する", "スキップ"] },
+        "notes": "営業日判定は真偽値ではなく「配信しない理由」を文字列で返す設計にすると運用時に追いやすい（振替出勤 > 土日 > 会社休暇 > 祝日カレンダー の優先順）。祝日カレンダーの参照が失敗したときに fail-open（配信する）か fail-close（止める）かを先に決めること。多重実行ガードはロック取得と「直近 N 分の再送ブロック」の 2 段。"
+      }
+    },
+    {
+      "id": "end-skipped",
+      "type": "end",
+      "position": { "x": 740, "y": 440 },
+      "data": {
+        "title": "配信しない",
+        "config": { "outcome": "Skipped（休業日・二重起動）" }
+      }
+    },
+    {
+      "id": "ds-ledger",
+      "type": "dataSource",
+      "position": { "x": 400, "y": 440 },
+      "data": {
+        "title": "集計元シートを一括取得",
+        "description": "1 回の読み取りで全行を取る",
+        "config": { "provider": "Google Sheets" },
+        "notes": "セル単位のアクセスを繰り返すと実行時間制限に当たる。getValues で一括取得する。Excel Online (Business) を使う場合は既定で 256 行しか返らないため、改ページを ON にしてしきい値を 1000 にする（554 行の台帳が途中で切れた実例あり）。"
+      }
+    },
+    {
+      "id": "act-resolve-columns",
+      "type": "action",
+      "position": { "x": 400, "y": 620 },
+      "data": {
+        "title": "ヘッダー名で列位置を解決",
+        "config": {
+          "operation": "ヘッダー行を検出し、列名から列インデックスを引く"
+        },
+        "notes": "列位置を定数で持つと列の挿入で静かに壊れる。列名で引き、見つからなければ即エラーで止める。既定値で続行するとサイレントな誤集計になる。"
+      }
+    },
+    {
+      "id": "act-normalize",
+      "type": "action",
+      "position": { "x": 400, "y": 800 },
+      "data": {
+        "title": "レコード化・期間フィルタ・重複除去",
+        "config": {
+          "operation": "対象期間で絞り込み、キーの重複を除去する"
+        },
+        "notes": "期間の定義（カレンダー週 / ローリング 7 日 / 月曜始まりの閉区間）を明示する。重複除去のキーも決めておく（例: 企業名｜案件名｜獲得日）。"
+      }
+    },
+    {
+      "id": "act-aggregate",
+      "type": "action",
+      "position": { "x": 400, "y": 980 },
+      "data": {
+        "title": "担当者別に集計し前回比を算出",
+        "config": {
+          "operation": "件数・合計・率を集計し、前回スナップショットとの差分を出す"
+        },
+        "notes": "分母 0 のときは率と前回比を「—」にしてゼロ除算を避ける。前回比を出すならスナップショットを別シートへ追記しておく（記録は全量、表示は当月だけに絞る形が扱いやすい）。"
+      }
+    },
+    {
+      "id": "cond-empty",
+      "type": "condition",
+      "position": { "x": 400, "y": 1160 },
+      "data": {
+        "title": "対象は 1 件以上か？",
+        "config": { "branches": ["1 件以上", "0 件"] },
+        "notes": "0 件のときに投稿するかは案件ごとに決める分岐点。ここでは「該当なし」として投稿する — 受け手が「配信が止まった」のか「該当がなかった」のかを区別できるため。"
+      }
+    },
+    {
+      "id": "act-card",
+      "type": "action",
+      "position": { "x": 240, "y": 1400 },
+      "data": {
+        "title": "Adaptive Card を組み立てる",
+        "config": { "operation": "KPI 行と明細テーブルを組む" },
+        "notes": "チャネルメンションを入れたい場合、Adaptive Card の msteams.entities 方式はエラーにならず静かに失敗する（解決できない <at> はタグごと削除される）。Graph API 経由にするとメンションは効くが投稿名義が接続アカウント個人名になるトレードオフがある。"
+      }
+    },
+    {
+      "id": "act-card-empty",
+      "type": "action",
+      "position": { "x": 600, "y": 1400 },
+      "data": {
+        "title": "「該当なし」カードを組み立てる",
+        "config": { "operation": "対象が 0 件であることを明示する" }
+      }
+    },
+    {
+      "id": "int-relay",
+      "type": "integration",
+      "position": { "x": 400, "y": 1580 },
+      "data": {
+        "title": "Power Automate へ POST",
+        "description": "Teams への中継",
+        "config": { "system": "Power Automate" },
+        "notes": "単純なチャネル投稿だけなら Teams Incoming Webhook を直接叩けばよく、このノードは削除できる。個人 DM や Graph API 経由のチャネルメンションが必要な場合に Power Automate を挟む。Webhook URL の形（logic.azure.com / powerautomate / azure-apihub）でカード形式を自動判定する実装が実案件で使われている。"
+      }
+    },
+    {
+      "id": "notif-teams",
+      "type": "notification",
+      "position": { "x": 400, "y": 1760 },
+      "data": {
+        "title": "Teams チャネルへ投稿",
+        "config": {
+          "provider": "Microsoft Teams",
+          "recipient": "営業チームのチャネル",
+          "message": "今週の集計結果（前回比つき）",
+          "purpose": "週次サマリーの共有"
+        }
+      }
+    },
+    {
+      "id": "act-log",
+      "type": "action",
+      "position": { "x": 400, "y": 1940 },
+      "data": {
+        "title": "配信ログへ追記",
+        "config": {
+          "operation": "実行時刻・件数・HTTP ステータスを 1 行追記する"
+        },
+        "notes": "成功・失敗のどちらでも必ず記録する。HTTP ステータスは muteHttpExceptions で自前判定し、失敗したときは前回スナップショットを更新しない（次回の前回比が壊れるため）。リトライは 429 / 5xx / タイムアウトに限り、401 / 403 は再試行せずエスカレーションする。"
+      }
+    },
+    {
+      "id": "end-done",
+      "type": "end",
+      "position": { "x": 400, "y": 2120 },
+      "data": {
+        "title": "配信完了",
+        "config": { "outcome": "Completed" }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-trigger-guard",
+      "source": "trigger-weekly",
+      "target": "cond-guard"
+    },
+    {
+      "id": "e-guard-skip",
+      "source": "cond-guard",
+      "target": "end-skipped",
+      "sourceHandle": "スキップ",
+      "label": "スキップ",
+      "data": { "description": "休業日・二重起動なら何もせず終了する" }
+    },
+    {
+      "id": "e-guard-run",
+      "source": "cond-guard",
+      "target": "ds-ledger",
+      "sourceHandle": "実行する",
+      "label": "実行する"
+    },
+    {
+      "id": "e-ledger-columns",
+      "source": "ds-ledger",
+      "target": "act-resolve-columns"
+    },
+    {
+      "id": "e-columns-normalize",
+      "source": "act-resolve-columns",
+      "target": "act-normalize"
+    },
+    {
+      "id": "e-normalize-aggregate",
+      "source": "act-normalize",
+      "target": "act-aggregate"
+    },
+    {
+      "id": "e-aggregate-empty",
+      "source": "act-aggregate",
+      "target": "cond-empty"
+    },
+    {
+      "id": "e-empty-some",
+      "source": "cond-empty",
+      "target": "act-card",
+      "sourceHandle": "1 件以上",
+      "label": "1 件以上"
+    },
+    {
+      "id": "e-empty-none",
+      "source": "cond-empty",
+      "target": "act-card-empty",
+      "sourceHandle": "0 件",
+      "label": "0 件"
+    },
+    { "id": "e-card-relay", "source": "act-card", "target": "int-relay" },
+    {
+      "id": "e-cardempty-relay",
+      "source": "act-card-empty",
+      "target": "int-relay"
+    },
+    { "id": "e-relay-notify", "source": "int-relay", "target": "notif-teams" },
+    { "id": "e-notify-log", "source": "notif-teams", "target": "act-log" },
+    { "id": "e-log-end", "source": "act-log", "target": "end-done" }
+  ],
+  "promptSettings": { "target": "google-apps-script", "language": "ja" }
+}
