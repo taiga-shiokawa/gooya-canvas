@@ -1,0 +1,15 @@
+# 改行コードは LF に統一する。
+# Prettier は LF で整形するため、Windows（core.autocrlf=true）で作業ツリーが CRLF に
+# なると clone 直後の `npm run format:check` が全ファイルで落ちる（development-guidelines §4.2）。
+* text=auto eol=lf
+
+# バイナリは変換しない
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
