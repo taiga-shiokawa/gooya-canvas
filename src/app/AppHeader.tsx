@@ -1,10 +1,11 @@
 import { ProjectDialog, useProjectCommands } from '@/modules/project'
+import { PromptPanel } from '@/modules/prompt'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { projectUseCases } from './ports'
+import { projectUseCases, promptUseCases } from './ports'
 
 // Header（docs/functional-design.md §4.2）。
-// File メニューは Phase 4（Persistence）。Export PDF / PNG は Phase 7、
-// Main Actions の Generate Prompt は Phase 5、Review Flow は Phase 6 で埋める。
+// File メニューは Phase 4（Persistence）、Generate Prompt は Phase 5。
+// Export PDF / PNG は Phase 7、Main Actions の Review Flow は Phase 6 で埋める。
 //
 // ヘッドレス UI ライブラリは未導入のため、メニューは自前実装で
 // Esc クローズ・外側クリック・aria 属性・フォーカス復帰を担保する
@@ -17,6 +18,7 @@ const MENU_ITEM_CLASS =
 
 export function AppHeader() {
   const commands = useProjectCommands(projectUseCases)
+  const [promptOpen, setPromptOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -107,9 +109,23 @@ export function AppHeader() {
         </div>
       </nav>
 
-      <div className="ml-auto flex items-center gap-2" />
+      <div className="ml-auto flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setPromptOpen(true)}
+          className="rounded border border-slate-800 bg-slate-800 px-3 py-1.5 text-sm text-white hover:bg-slate-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500"
+        >
+          Generate Prompt
+        </button>
+      </div>
 
       <ProjectDialog state={commands.dialog} />
+      {promptOpen ? (
+        <PromptPanel
+          useCases={promptUseCases}
+          onClose={() => setPromptOpen(false)}
+        />
+      ) : null}
     </header>
   )
 }

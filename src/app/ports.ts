@@ -3,6 +3,11 @@ import {
   createProjectUseCases,
   type ProjectUseCases,
 } from '@/modules/project'
+import {
+  createBrowserClipboardPort,
+  createPromptUseCases,
+  type PromptUseCases,
+} from '@/modules/prompt'
 
 // composition root の配線（docs/repository-structure.md §5.3、AD-10）。
 // ポート具象を生成して application service へ束ねるのはここだけの特権であり、
@@ -12,4 +17,8 @@ export const projectUseCases: ProjectUseCases = createProjectUseCases({
   filePort: createBrowserProjectFilePort(),
   now: () => new Date().toISOString(),
   newId: () => crypto.randomUUID(),
+})
+
+export const promptUseCases: PromptUseCases = createPromptUseCases({
+  clipboard: createBrowserClipboardPort(),
 })

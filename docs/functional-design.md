@@ -61,11 +61,13 @@ graph TD
 
 | ポート（interface） | 定義場所 | 実装場所（具象） | 用途 |
 |---|---|---|---|
-| `ProjectFilePort`（`download(name, json)` / `pickAndRead(): Promise<string>`） | `project` の application/ports | infrastructure（Blob + `<a download>` / `<input type="file">`） | 保存・読込（FR-012, FR-013） |
+| `ProjectFilePort`（`download(name, json)` / `pickAndRead(): Promise<string \| null>`。**`null` はキャンセルまたは読み取り不能を表す**） | `project` の application/ports | infrastructure（Blob + `<a download>` / `<input type="file">`） | 保存・読込（FR-012, FR-013） |
 | `RecoveryStoragePort`（`save` / `load` / `clear`） | `project` の application/ports | infrastructure（localStorage） | Crash Recovery（NFR-006） |
 | `CanvasImagePort`（`capture(bounds, options): Promise<Blob>`） | `export` の application/ports | infrastructure（html-to-image） | PNG / PDF の元画像（FR-016） |
 | `PdfComposerPort`（`compose(image, meta): Promise<Blob>`） | `export` の application/ports | infrastructure（jsPDF） | PDF 出力（FR-017） |
 | `ClipboardPort`（`copy(text)`） | `prompt` の application/ports | infrastructure（Clipboard API） | Prompt コピー（AC-023） |
+
+`pickAndRead` がキャンセルを例外ではなく `null` として解決するのは、キャンセル時に Promise を未解決のまま放置すると読込ユースケースが永久に完了しないためである（§7.3）。
 
 具象実装はアプリ起動時（エントリポイント）に組み立て、application service へ引数または生成時注入で束ねる。DI コンテナは導入しない（規模に対して過剰なため）。
 
@@ -80,11 +82,11 @@ graph TD
 | `fromReactFlowConnection` / `fromReactFlowPosition` / `fromReactFlowIds` | React Flow → Domain | 接続・座標・選択/削除対象 ID を Domain 値へ変換する（`fromReactFlow` という単一関数は置かない。React Flow のイベントは種類ごとに必要な情報が異なるため） |
 | `mergeReactFlowNodes` / `mergeReactFlowEdges` | Domain の変更 → 既存 React Flow 配列 | Domain の変更を既存配列へマージする。**変化のない要素は同一参照を維持し、配列全体に変化が無ければ配列そのものも同一参照を返す** |
 
-- **controlled flow の要点**: React Flow は `measured`（測定済みサイズ）や `selected` を、props で渡したノード／エッジ**オブジェクト自身**に保持する。そのため Domain の変更ごとに配列を作り直すと MiniMap が描画されないなどの不整合が起きる。これを避けるため、(a) Domain → React Flow の同期は store の `subscribe` で購読し `mergeReactFlow*` を通して適用する、(b) `onNodesChange` の `dimensions` 変更を `applyNodeChanges` で適用しないと `measured` が付かないため、同 handler で必ず適用する。
+- **controlled flow の要点**: React Flow は `measured`（測定済みサイズ）や `selected` を、props で渡したノード／エッジ**オブジェクト自身**に保持する。そのため Domain の変更ごとに配列を作り直すと MiniMap が描画されないなどの不整合が起きる。これを避けるため、(a) Domain → React Flow の同期は store の `subscribe` で購読し `mergeReactFlow*` を通して適用する、(b) `onNodesChange` の `dimensions` 変更を `applyNodeChanges` で適用しないと `measured` が付かないため、同 handler で必ず適用する、(c) Condition の分岐（Source Handle の識別子と位置）が変化した場合は、Canvas 側から React Flow へ Handle の再計算を明示的に通知する。通知しないと Edge が旧 Handle 位置のまま描画される、(d) 起動時の全体表示（fit）は**全ノードの実測サイズが揃うまで待って**から行う。測定前に fit すると実測 0 の矩形へ合わせようとして最大倍率までズームインしてしまう。
 - JSON 保存・Prompt 生成・Flow Review はすべて Domain Model を入力とし、React Flow の内部状態を直接読まない。
 - store が持つ UI 状態: `viewport` / `isDirty` / inspector・panel の開閉状態 / prompt settings。Undo / Redo 履歴は zundo で Node / Edge 配列のみを対象にする（§11）。
 - **dirty 判定規則**: `isDirty` を立てるのは `nodes` / `edges` / `metadata` / `promptSettings` の変更である。**`viewport` の変更と選択状態の変更では立てない**（Pan / Zoom のたびに未保存インジケータが点くのを避けるため。Viewport を Undo 履歴の対象外とする §11 の方針と一貫する）。`isDirty` を倒すのは、正式保存の成功時（§7.2）と、New / Open / Crash Recovery による store 復元時（§7.1 / §7.3 / §7.5）である。
-- **選択状態（選択中の Node / Edge）の所有者**: 選択状態は Domain Model ではないため store には持たせない。**Phase 1 は `canvas` の presentation（`WorkflowCanvas`）が React Flow の `nodes` / `edges` 配列上（各要素の `selected`）に保持する**。Inspector が選択ノードを参照する必要が生じる **Phase 3 で `shared` の store へ移す**（`selectedNodeIds` / `selectedEdgeId` として保持し、presentation は store を購読する）。移行時も React Flow 型は store へ出さず、ID のみを保持する。
+- **選択状態（選択中の Node / Edge）の所有者**: 選択状態は Domain Model ではないため、保存対象（`WorkflowProject`）にも Undo 履歴にも含めない。**Phase 3 で `shared` の store へ移管済み**であり、store が `selectedNodeIds` / `selectedEdgeId` を保持し、Canvas と Inspector の双方が store を購読する（Phase 1 の暫定である「React Flow の `nodes` / `edges` 配列上の `selected` を唯一の所有者とする」方式は廃止した）。**store が持つのは ID のみで、React Flow 型は store へ出さない**。Canvas は store の選択 ID を React Flow の `selected` へ反映し、React Flow 側の選択変更は ID へ変換して store へ戻す。
 
 ## 3. データモデル定義
 
@@ -315,6 +317,9 @@ graph LR
 - Edge は `label` を持てる（Yes / No / Completed / Pending / Success / Failure 等）。Canvas 上に Edge Label を表示する。
 - Condition ノードからの Edge は `sourceHandle` に分岐名を保持し、接続時に分岐名を `label` の初期値とする。
 - Condition の分岐名は Inspector から変更でき、変更時は該当 Edge の `sourceHandle` / `label` へ反映する。
+- 分岐は Inspector から**追加・削除もできる**。ただし**分岐は最低 2 つを下回れない**（Condition が分岐しないノードになるため）。**分岐名の重複は許さない**（分岐名が Source Handle の識別子を兼ねており、重複すると Edge の接続先を一意に定められないため）。
+- リネーム時に Edge の `label` を追随させるのは、**`label` が旧分岐名と一致していた場合のみ**とする。ユーザーが独自に付け替えた `label` は上書きしない。
+- 分岐を削除したときは、**その分岐に紐づく Edge（`sourceHandle` が当該分岐名の Edge）も併せて削除する**。参照先を失った Edge は Canvas に描画されないまま Domain Model に残り、保存内容・Prompt・Review へ紛れ込むためである。
 
 ### 5.4 Context Menu（FR-004）
 
@@ -340,7 +345,10 @@ Node / Edge 上の右クリックで表示する: **Edit**（Inspector へフォ
 - Node 選択で右ペインに Inspector を表示する。共通項目: **Name（title）/ Description / Node Type（読み取り専用）/ Notes**。
 - Node Type ごとの専用フォームを共通項目の下に表示する（§3.3 の config キーに対応。例: Wait は Duration + Unit、Notification は Provider / Recipient / Message / Purpose、Human Task は Role / Action / Expected Result）。
 - 編集は store の Domain Model を直接更新し、**即座に Canvas の表示へ反映**する（AC-011）。編集確定単位（フィールドの blur / 入力 debounce）で Undo 履歴 1 件とする。
-- Edge 選択時は Edge 用 Inspector（Label / Description）を表示する。
+- **編集できるのは単一選択のときだけ**とする。複数選択時は選択数のみを表示し、編集フォームは出さない（複数ノードの一括編集は MVP で定義しない）。
+- Edge 選択時は Edge 用 Inspector（Label / Description）を表示する。Source が Condition の場合は、その Edge が属する**分岐名を読み取り専用で併記**する（分岐名の編集は Condition ノード側の Inspector で行う。§5.3）。
+- **Condition の分岐名の編集だけは確定操作（フォーカスを外す / Enter）で反映する**。分岐名は Source Handle の識別子を兼ねるため、入力途中の空文字や一時的な重複を即時反映すると Edge の接続が壊れる。他のフィールドは従来どおり即時反映とする。
+- config へ秘密情報（API Key / Password / Access Token / Webhook Secret 等）を保存しない旨の注意書きを、Inspector 内に**常時表示**する（NFR-002。§3.3 末尾の要求に対応）。
 - 非選択時は空状態（「ノードを選択してください」等）を表示する。
 
 ## 7. プロジェクト管理
@@ -380,9 +388,11 @@ Schema Migration（schemaVersion が旧版なら現行版へ順次変換）
 ↓
 store へ反映（既存 Canvas を置き換え）
 ↓
-fitView()
+保存されていた viewport を復元する
 ```
 
+- 読込完了後の表示は `fitView` ではなく、**ファイルに保存されていた `viewport`（x / y / zoom）の復元**とする。画面の拡大縮小は `canvas` モジュールの責務であり、`project` モジュールから直接操作しない（モジュール境界。§2.2）。保存時の見え方をそのまま再現できる利点もある。
+- **File Picker をキャンセルした場合は何もしない**（`ProjectFilePort.pickAndRead` が `null` を返す。§2.3）。既存の Canvas を変更せず、エラーダイアログも表示しない。
 - JSON.parse 失敗・validation 失敗・未知の schemaVersion の場合、**既存の Canvas 状態を一切変更せず**、エラーダイアログ「このファイルを開けませんでした。GOOYA Canvas のプロジェクトファイルか確認してください。」を表示する。
 - dirty 状態で Open した場合は New と同様に確認ダイアログを挟む。
 - 読込前後で Node 位置・Edge・設定が一致すること（AC-014）。
@@ -392,6 +402,8 @@ fitView()
 - 現行 schemaVersion は `"1.0"`。保存時は常に現行版で書き出す。
 - `workflow` ドメインに migration レジストリ（`"1.0" → "1.1"` のような純関数の連鎖）を置き、読込時に現行版まで順次適用する。MVP 時点ではレジストリは空である。
 - 現行版より新しい schemaVersion のファイルは開かず、異常ファイルと同じエラー処理とする。
+
+> **注記（検証順序の限界）**: §7.3 のフローは「Zod validation → Migration」の順である。この順序では**現行スキーマに適合しない旧版は Migration に到達できない**ため、キー追加のような後方互換な変更にしか対応できない。将来 breaking な版を作る場合は、「`schemaVersion` だけを読む最小検証 → Migration → 現行スキーマで本検証」の順序へ改める必要がある。MVP 時点では migration レジストリが空であるため実害はない。
 
 ### 7.5 Crash Recovery（NFR-006）
 
@@ -414,6 +426,8 @@ Trigger: Google Calendar 面接終了
 ```
 
 サンプルは通常の `WorkflowProject`（schemaVersion "1.0"）としてアプリにバンドルする。
+
+初期表示は §7.3 の読込と異なり、**保存されている viewport を復元せず全体が収まるよう合わせる**。サンプルは横に広く、固定の viewport ではウィンドウ幅によって一部しか見えないため。合わせるのはノードの実測が揃ってからとする（§2.4）。
 
 ## 8. Export（FR-016〜018, AC-016〜019）
 
@@ -460,15 +474,23 @@ Handles / Selection Border / MiniMap / Controls / Inspector / Toolbar / Grid（A
 | `## Notifications` | notification ノードの provider / recipient / message |
 | `## Constraints` | ai ノードの constraints、promptSettings.additionalInstructions |
 | `## Notes` | note ノードの内容（コメントとして。FR-022） |
-| `## Open Questions` | Flow Review の WARNING / INFO を未確定事項として転記 |
-| `## Acceptance Criteria` | （要確認）— 出力例に含まれるが生成ロジックの定義が初期要求にない。MVP では Workflow の分岐から機械的に導出できる範囲（「〜の場合に〜される」）に留める |
+| `## Open Questions` | Flow Review の WARNING / INFO を未確定事項として転記。**Flow Review（§10）が未実装の段階では該当データが無いため、本セクションは省略される** |
+| `## Acceptance Criteria` | Workflow の構造から機械的に導出する。**Condition の各分岐について「〜が〜の場合に〜が実行される」、End ノードについて「〜に到達した場合、〜」の形の条件文を生成する**（MVP の確定内容。これ以外の受け入れ条件は生成しない） |
 | `Implementation target: <Target>` | promptSettings.target（§9.3） |
+
+`## Workflow`（手順）の生成規則:
+
+- Trigger を起点に Edge を辿り、Node を番号付きの手順として書き出す。Condition に到達したら**分岐ごとに手順を分けて**記述する。
+- **既に手順として書き出したノードへ再び到達した場合は、そこで展開を打ち切り「既出の手順に合流」として参照する**。接続時に Cycle を禁止していない（§5.2）ため、この打ち切りが無いと Loop を含む Workflow が無限に展開される。
+- 分岐に接続先が無い場合は、その分岐が未接続である旨を手順に明記する（Flow Review の RV-W01 と対応する情報だが、Prompt 側でも欠落が読み取れるようにする）。
+- Note は Workflow 処理に参加しない（§5.2）ため手順には現れず、`## Notes` にコメントとして出力する（FR-022）。
 
 ### 9.3 Prompt Panel（FR-020, FR-021）
 
 - Generate Prompt で Drawer または Modal を開き、生成された Markdown をプレビュー表示する。
 - **Target** セレクタ: Generic / Google Apps Script / Power Automate / Cloudflare / Azure / Web Application / Other の 7 種。変更すると即時再生成する。MVP では Target 別のコード生成はせず、Prompt 内へ `Implementation target: ...` を明記する程度とする。
-- **Language**（promptSettings.language: ja / en）: Prompt の定型文の言語を切り替える。既定は ja。
+- **Language**（promptSettings.language: ja / en）: Prompt の定型文の言語を切り替える。既定は ja。**切替の対象は見出し・定型文だけ**であり、ユーザーが入力した title / description / config の値は翻訳せずそのまま出力する。
+- プレビューは生成された Markdown を**プレーンテキストとして表示**する。Prompt はそのままコピーして AI コーディングツールへ渡すものであり、HTML へレンダリングしない。
 - **Copy Prompt** ボタンで Clipboard へコピーする（AC-023）。
 - Target / Language / additionalInstructions は `promptSettings` としてプロジェクトファイルに保存される。
 
