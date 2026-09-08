@@ -13,7 +13,7 @@
 
 Phase 0 → 8 の順に実装する。並行可否は §2 を参照。
 
-**現在地**: Phase 0 〜 Phase 5 は完了（Phase 0〜1: 2026-09-07、Phase 2〜5: 2026-09-08）。次は Phase 6（Flow Review）と Phase 7（Export）。この 2 つは §2 のとおり相互独立であり、順序を入れ替えてよい。
+**現在地**: **Phase 0 〜 Phase 8 は完了**（Phase 0〜1: 2026-09-07、Phase 2〜8: 2026-09-08）。任意実装だった Crash Recovery（NFR-006）も実装済み。**§3 の MVP 完了条件を満たしている。** 以降は §4 の拡張候補から着手対象を選ぶ。
 
 主要導線の E2E（`e2e/mainFlow.spec.ts`）は Phase 5 で整備済みであり、以降は **main マージの継続条件**である。
 
@@ -71,7 +71,7 @@ Node Type ごとの設定 UI（Inspector）と Edge 設定。
 
 Save Project / Open Project、Zod validation、Schema Migration、New Project、サンプルプロジェクト（Interview Evaluation Reminder）。
 
-**Crash Recovery（NFR-006 / functional-design §7.5）は本フェーズに含めなかった。** 完了条件に含まれず Phase 8 でも任意実装のため、`RecoveryStoragePort` は未作成である。
+**Crash Recovery（NFR-006 / functional-design §7.5）は本フェーズに含めなかった。** 完了条件に含まれず Phase 8 でも任意実装のためである。Phase 8 と並行して別途実装し、現在は `project` モジュールに実装済み。
 
 **完了条件**: AC-012, AC-013, AC-014, AC-015（FR-011, FR-012, FR-013, FR-014, FR-015）
 
@@ -83,23 +83,36 @@ Workflow Domain Model → Markdown の決定論的生成、Prompt Panel、Implem
 
 **E2E 整備をこのフェーズに紐づける**: 主要導線 `New Project → Add Nodes → Connect → Edit → Save → Open → Generate Prompt` を構成する機能群が Phase 5 完了時点で揃うため、Playwright による E2E（`e2e/mainFlow.spec.ts`）をここで整備する。以降、この導線が通ることを **main マージの継続条件**とする（development-guidelines §5.2）。Playwright 自体の導入は Phase 0 で済ませておく。
 
-### Phase 6 — Flow Review
+### Phase 6 — Flow Review（完了）
 
 Rule-based validation（ERROR / WARNING / INFO）と Review UI（該当 Node へのジャンプ）。
 
+補足（実装済みの前提）:
+
+- Review 結果は `shared` の store が保持する。ステータスバー（composition root）と共有する必要があり、feature モジュール間の直接 import は禁止のため
+- 該当 Node へのジャンプも store 経由のフォーカス要求で行う（React Flow は canvas に封じ込められている）
+- **Prompt の `## Open Questions` への転記は未連携**（理由は functional-design §9.2）。§4 の拡張候補へ送った
+
 **完了条件**: AC-024, AC-025, AC-026, AC-027, AC-028（FR-023, FR-024）
 
-### Phase 7 — Export
+### Phase 7 — Export（完了）
 
 PNG / PDF 出力（html-to-image + jsPDF、AD-06）。
 
+補足（実装済みの前提）:
+
+- Export に必要な「全体の Bounding Box」と「Export 表示への切替」は canvas 側が提供し、composition root がポートとして export へ渡す（functional-design §8.4）
+- ポートを 2 つ追加した（`CanvasSourcePort` / `ExportFilePort`。functional-design §2.3）
+
 **完了条件**: AC-016, AC-017, AC-018, AC-019（FR-016, FR-017, FR-018）
 
-### Phase 8 — UX Polish
+### Phase 8 — UX Polish（完了）
 
 Undo / Redo（zundo、AD-07）、Keyboard Shortcuts、Context Menu、Copy / Paste、Snap to Grid、Dirty Indicator。
 
-**完了条件**: FR-004, FR-005, FR-006 を満たすこと（AC-006 の複製導線を含む）。localStorage による Crash Recovery（NFR-006）は任意実装であり、本フェーズの完了条件に含めない。
+Dirty Indicator は Phase 4 で実装済み。**localStorage による Crash Recovery（NFR-006）は本フェーズの完了条件に含めないが、Phase 8 と並行して実装した**（functional-design §7.5）。
+
+**完了条件**: FR-004, FR-005, FR-006 を満たすこと（AC-006 の複製導線を含む）。
 
 ## 2. フェーズ間の主要依存
 
@@ -130,6 +143,8 @@ graph LR
 - 主要導線の E2E が main で継続的に通っている（§1 Phase 5）
 - GitHub Pages 上で最新の main が配信されている（AD-12）
 
+**達成状況（2026-09-08）**: Phase 0〜8 完了により上記をすべて満たした。以降は本書の「現在地」ではなく §4 の拡張候補が起点となる。
+
 ## 4. MVP 後の拡張候補
 
 MVP 完了後の候補群。着手順序・採否は未確定（要確認）。名称は glossary の定義に従う。
@@ -143,6 +158,8 @@ MVP 完了後の候補群。着手順序・採否は未確定（要確認）。�
 | Swimlane | glossary / メモ §35 | schemaVersion migration（FR-014）を伴う可能性 |
 | Template | glossary / メモ §36 | 通常の `.gooya-canvas.json` として管理。Persistence（Phase 4）の機構をそのまま使う |
 | PDF 複数ページ分割 | glossary / メモ §21 | Export（Phase 7）の拡張。性能目標の確定（NFR-012）と併せて検討 |
+| Prompt への Open Questions 転記 | functional-design §9.2 | Flow Review（Phase 6）の結果を Prompt へ載せる。**Review 結果の陳腐化ポリシー**と、Review メッセージの多言語化（Prompt は ja / en を切り替える — §9.3）の決着が先行 |
+| Copy / Paste の OS クリップボード連携 | functional-design §5.1 | MVP はアプリ内メモリのみ。他アプリ・他タブとの受け渡しが必要になった時点で検討 |
 
 SSO・組織認証・AI API proxy・Google Drive 直接保存・プロジェクト共有・共同編集・Audit Log に着手する時点で、フルスタック構成（Next.js 等）の再検討を行う（AD-01、product-requirements §5）。
 
