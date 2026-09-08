@@ -1,4 +1,4 @@
-import { useWorkflowStore } from '@/modules/shared'
+import { useWorkflowStore, withHistoryGroup } from '@/modules/shared'
 import {
   addConditionBranch as addConditionBranchToGraph,
   removeConditionBranch as removeConditionBranchFromGraph,
@@ -10,7 +10,11 @@ import {
 
 // Inspector からの store 更新の唯一の入口。presentation は store の setter を直接呼ばない。
 // 編集は Domain Model を直接書き換えるため、Canvas へは store 購読経由で即座に反映される（AC-011）。
-// Undo 履歴の確定単位（blur / debounce で 1 件にまとめる）は Phase 8（zundo 導入）で扱う。
+//
+// Undo 履歴の確定単位（docs/functional-design.md §6 / §11）: 1 文字ごとに履歴が積まれると
+// Ctrl+Z が打鍵数ぶん必要になるため、`withHistoryGroup` で「同じフィールドへの連続入力」を
+// 1 件にまとめる。即時反映（AC-011）はそのまま維持し、まとめるのは履歴だけである。
+// Condition の分岐名だけは確定操作（blur / Enter）で反映されるためグループ化しない。
 
 type NodeTextField = 'title' | 'description' | 'notes'
 
@@ -42,11 +46,15 @@ function updateEdge(
   setEdges(edges.map((edge) => (edge.id === id ? transform(edge) : edge)))
 }
 
-/** 分岐編集の結果を store へ書き戻す。変化が無い配列は書き戻さない（無意味な dirty を避ける）。 */
+/**
+ * 分岐編集の結果を store へ書き戻す。変化が無い配列は書き戻さない（無意味な dirty を避ける）。
+ * nodes / edges は setGraph で 1 回にまとめる（Undo 1 回で戻せるようにするため。§11）。
+ */
 function applyGraph(next: WorkflowGraph): void {
-  const { nodes, edges, setNodes, setEdges } = useWorkflowStore.getState()
-  if (next.nodes !== nodes) setNodes(next.nodes)
-  if (next.edges !== edges) setEdges(next.edges)
+  const { nodes, edges, setGraph } = useWorkflowStore.getState()
+  if (next.nodes === nodes && next.edges === edges) return
+
+  setGraph({ nodes: next.nodes, edges: next.edges })
 }
 
 /** 共通項目（Name / Description / Notes）の更新（docs/functional-design.md §6）。 */
@@ -55,19 +63,21 @@ export function updateNodeText(
   field: NodeTextField,
   value: string,
 ): void {
-  updateNode(id, (node) => {
-    switch (field) {
-      case 'title':
-        // Name は必須項目なので空でもキーを残す（型が string を要求する）
-        return { ...node, data: { ...node.data, title: value } }
-      case 'description':
-        return {
-          ...node,
-          data: { ...node.data, description: optionalText(value) },
-        }
-      case 'notes':
-        return { ...node, data: { ...node.data, notes: optionalText(value) } }
-    }
+  withHistoryGroup(`node:${id}:${field}`, () => {
+    updateNode(id, (node) => {
+      switch (field) {
+        case 'title':
+          // Name は必須項目なので空でもキーを残す（型が string を要求する）
+          return { ...node, data: { ...node.data, title: value } }
+        case 'description':
+          return {
+            ...node,
+            data: { ...node.data, description: optionalText(value) },
+          }
+        case 'notes':
+          return { ...node, data: { ...node.data, notes: optionalText(value) } }
+      }
+    })
   })
 }
 
@@ -88,13 +98,15 @@ export function updateNodeConfigText(
   key: string,
   value: string,
 ): void {
-  updateNode(id, (node) => ({
-    ...node,
-    data: {
-      ...node.data,
-      config: withConfigValue(node.data.config, key, optionalText(value)),
-    },
-  }))
+  withHistoryGroup(`node:${id}:config:${key}`, () => {
+    updateNode(id, (node) => ({
+      ...node,
+      data: {
+        ...node.data,
+        config: withConfigValue(node.data.config, key, optionalText(value)),
+      },
+    }))
+  })
 }
 
 /** 数値項目（Wait の duration）。数値として読めない入力は無視し、config を壊さない。 */
@@ -112,13 +124,15 @@ export function updateNodeConfigNumber(
   const parsed = Number(trimmed)
   if (!Number.isFinite(parsed)) return
 
-  updateNode(id, (node) => ({
-    ...node,
-    data: {
-      ...node.data,
-      config: withConfigValue(node.data.config, key, parsed),
-    },
-  }))
+  withHistoryGroup(`node:${id}:config:${key}`, () => {
+    updateNode(id, (node) => ({
+      ...node,
+      data: {
+        ...node.data,
+        config: withConfigValue(node.data.config, key, parsed),
+      },
+    }))
+  })
 }
 
 /** Condition の分岐を 1 つ追加する（FR-010）。 */
@@ -149,16 +163,20 @@ export function removeConditionBranch(nodeId: string, index: number): void {
 
 /** Edge の Label（docs/functional-design.md §5.3 / §6）。 */
 export function updateEdgeLabel(id: string, value: string): void {
-  updateEdge(id, (edge) => ({ ...edge, label: optionalText(value) }))
+  withHistoryGroup(`edge:${id}:label`, () => {
+    updateEdge(id, (edge) => ({ ...edge, label: optionalText(value) }))
+  })
 }
 
 /** Edge の Description。data は description のみを持つため、未設定なら data ごと落とす。 */
 export function updateEdgeDescription(id: string, value: string): void {
-  updateEdge(id, (edge) => {
-    const description = optionalText(value)
-    return {
-      ...edge,
-      data: description === undefined ? undefined : { description },
-    }
+  withHistoryGroup(`edge:${id}:description`, () => {
+    updateEdge(id, (edge) => {
+      const description = optionalText(value)
+      return {
+        ...edge,
+        data: description === undefined ? undefined : { description },
+      }
+    })
   })
 }

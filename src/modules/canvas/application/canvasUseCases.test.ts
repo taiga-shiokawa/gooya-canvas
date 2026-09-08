@@ -9,7 +9,7 @@ import {
   addNode,
   connectNodes,
   isConnectionAllowed,
-  moveNode,
+  moveNodes,
   removeEdges,
   removeNodes,
   selectElements,
@@ -78,11 +78,13 @@ describe('addNode', () => {
   })
 })
 
-describe('moveNode', () => {
+describe('moveNodes', () => {
   it('対象ノードの位置だけを更新する', () => {
-    seed([node('a'), node('b')])
-    moveNode('b', { x: 50, y: 50 })
-    moveNode('a', { x: 200, y: 300 })
+    seed([node('a'), node('b'), node('c')])
+    moveNodes([
+      { id: 'b', position: { x: 50, y: 50 } },
+      { id: 'a', position: { x: 200, y: 300 } },
+    ])
 
     const { nodes } = useWorkflowStore.getState()
     expect(nodes.find((n) => n.id === 'a')?.position).toEqual({
@@ -90,6 +92,28 @@ describe('moveNode', () => {
       y: 300,
     })
     expect(nodes.find((n) => n.id === 'b')?.position).toEqual({ x: 50, y: 50 })
+    expect(nodes.find((n) => n.id === 'c')?.position).toEqual({ x: 0, y: 0 })
+  })
+
+  it('位置が変わらないなら store を更新しない（動かさないドラッグで dirty を立てない）', () => {
+    seed([node('a')])
+    const before = useWorkflowStore.getState().nodes
+
+    moveNodes([{ id: 'a', position: { x: 0, y: 0 } }])
+
+    expect(useWorkflowStore.getState().nodes).toBe(before)
+    expect(useWorkflowStore.getState().isDirty).toBe(false)
+  })
+
+  it('知らない ID は無視する', () => {
+    seed([node('a')])
+
+    moveNodes([{ id: 'ghost', position: { x: 10, y: 10 } }])
+
+    expect(useWorkflowStore.getState().nodes[0].position).toEqual({
+      x: 0,
+      y: 0,
+    })
   })
 })
 

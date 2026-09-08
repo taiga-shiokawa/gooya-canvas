@@ -13,6 +13,11 @@ export {
   type ConnectionCheck,
 } from './domain/connectionRules'
 export {
+  duplicateSubgraph,
+  extractSubgraph,
+  type DuplicateSubgraphOptions,
+} from './domain/graphDuplication'
+export {
   migrateProject,
   SCHEMA_MIGRATIONS,
   type MigrateProjectResult,
