@@ -42,6 +42,31 @@ export function selectElements(input: SelectElementsInput): void {
   })
 }
 
+/**
+ * Review Panel からの Node フォーカス要求を購読する（FR-024 / docs/functional-design.md §10.3）。
+ *
+ * review モジュールは @xyflow/react を import できない（repository-structure §5.1 #5）ため
+ * Canvas を直接動かせない。代わりに shared の store へ要求を置き、canvas がそれを購読して
+ * 実行する。要求は単調増加の token を持つので、同じノードを続けてクリックしても毎回通知される。
+ *
+ * 選択状態の所有者は store（§2.4）であり、Canvas がその ID を React Flow の `selected` へ
+ * 反映する構成なので、選択の publish はここ（canvas 側）で行い review には持たせない。
+ */
+export function subscribeNodeFocusRequests(
+  onFocus: (nodeId: string) => void,
+): () => void {
+  let handledToken = useWorkflowStore.getState().nodeFocusRequest?.token ?? 0
+
+  return useWorkflowStore.subscribe((state) => {
+    const request = state.nodeFocusRequest
+    if (!request || request.token === handledToken) return
+    handledToken = request.token
+
+    selectElements({ nodeIds: [request.nodeId], edgeIds: [] })
+    onFocus(request.nodeId)
+  })
+}
+
 export function addNode(input: AddNodeInput): void {
   const { nodes, setNodes } = useWorkflowStore.getState()
   setNodes([
