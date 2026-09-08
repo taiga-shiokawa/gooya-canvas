@@ -20,6 +20,7 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react'
+import { flushSync } from 'react-dom'
 import {
   addNode,
   connectNodes,
@@ -31,6 +32,12 @@ import {
   updateViewport,
 } from '../application/canvasUseCases'
 import { NODE_KIND_DND_MIME } from './canvasDnd'
+import { CanvasExportModeContext } from './canvasExportMode'
+import {
+  registerCanvasExportSource,
+  type CanvasExportBounds,
+} from './canvasExportSource'
+import { inlineSvgStylesForExport } from './exportSvgStyles'
 import { workflowNodeTypes } from './nodes/workflowNodeTypes'
 import {
   fromReactFlowConnection,
@@ -59,14 +66,53 @@ function selectAllNodesMeasured(state: ReactFlowState): boolean {
   return true
 }
 
+/** 描画フレームを待つときの打ち切り時間（ms）。 */
+const FRAME_TIMEOUT_MS = 50
+
+/**
+ * 次の描画フレームまで待つ。DOM への反映が済んでから画像化させるために使う。
+ *
+ * タイマーでも切り上げるのは、**タブが非表示のあいだ requestAnimationFrame が発火しない**ため。
+ * rAF だけで待つと、裏に回した状態で Export した場合に解決せず、Canvas が
+ * Export 用表示のまま固まる。
+ */
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = () => {
+      if (settled) return
+      settled = true
+      resolve()
+    }
+    requestAnimationFrame(finish)
+    setTimeout(finish, FRAME_TIMEOUT_MS)
+  })
+}
+
+/**
+ * Export 用表示のあいだ、選択中 Edge の色を通常色へ戻す（AC-018 の Selection Border）。
+ *
+ * React Flow は選択中 Edge の stroke を CSS 変数 `--xy-edge-stroke-selected` で決める。
+ * Tailwind の任意プロパティで変数を上書きすれば、コンポーネント個別の CSS ファイルを
+ * 増やさずに済む（development-guidelines §4.1）。値は未選択時と同じ解決順にする。
+ */
+const EXPORT_VIEW_CLASS =
+  '[--xy-edge-stroke-selected:var(--xy-edge-stroke,var(--xy-edge-stroke-default))]'
+
 // controlled flow: Domain Model（store）を唯一の Source of Truth とする（NFR-010）。
 // React Flow へ渡す配列はローカル state として保持し、Domain の変更をマージして
 // 反映する。毎回作り直すと React Flow の描画用フィールド（measured / selected）が
 // 失われるため（MiniMap が描画されない等）、既存要素の参照を維持する。
 // 選択状態は Domain Model ではないので、この配列側だけに存在する。
 function WorkflowCanvasInner() {
-  const { screenToFlowPosition, setViewport, getViewport, fitView } =
-    useReactFlow()
+  const {
+    screenToFlowPosition,
+    setViewport,
+    getViewport,
+    fitView,
+    getNodes,
+    getNodesBounds,
+  } = useReactFlow()
 
   const [reactFlowNodes, setReactFlowNodes] = useState<Node[]>(
     () => toReactFlow(useWorkflowStore.getState()).nodes,
@@ -87,6 +133,11 @@ function WorkflowCanvasInner() {
   // 起動時の自動 fit を 1 度だけ行うためのフラグ。マウント時に内容が無ければ
   // 何も合わせない（最初のノードを置いた瞬間に画面が跳ねるのを避ける）。
   const shouldFitOnMount = useRef(reactFlowNodes.length > 0)
+
+  // Export 用表示（§8.3 / AC-018）。Handle・選択枠・MiniMap・Controls・Grid を落とす。
+  // viewport には触れないので、onMoveEnd 経由で store が汚れることはない。
+  const [exportMode, setExportMode] = useState(false)
+  const wrapperRef = useRef<HTMLDivElement>(null)
 
   // Domain store を外部システムとして購読し、変更をコールバックでマージする
   useEffect(
@@ -132,6 +183,68 @@ function WorkflowCanvasInner() {
       updateViewport(next)
     })
   }, [allNodesMeasured, fitView, getViewport])
+
+  // --- Export（Phase 7）への受け渡し（./canvasExportSource.ts の説明を参照） ---
+
+  /**
+   * 全 Node / Edge の Bounding Box（AC-019）。
+   * Viewport の可視範囲ではないので、画面外のノードも必ず出力対象に入る。
+   * Edge は Node 間に引かれるため Node の外接矩形で足りる（余白は export 側が足す）。
+   */
+  const getContentBounds = useCallback((): CanvasExportBounds | null => {
+    const nodes = getNodes()
+    if (nodes.length === 0) return null
+
+    const bounds = getNodesBounds(nodes)
+    if (!(bounds.width > 0) || !(bounds.height > 0)) return null
+
+    // React Flow の Rect 型を canvas の外へ出さない（NFR-010）
+    return {
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
+    }
+  }, [getNodes, getNodesBounds])
+
+  /**
+   * 画像化対象。`.react-flow__viewport` が全 Node / Edge を含む要素であり、
+   * MiniMap / Controls / Grid はその外側にあるため、この要素を撮るだけで
+   * それらは写り込まない（AC-018）。
+   */
+  const getCaptureTarget = useCallback(
+    () =>
+      wrapperRef.current?.querySelector<HTMLElement>('.react-flow__viewport') ??
+      null,
+    [],
+  )
+
+  const beginExportView = useCallback(async () => {
+    // 画像化は live DOM を読むので、切替を同期的に確定させてから 1 フレーム待つ
+    flushSync(() => setExportMode(true))
+    await nextFrame()
+
+    // Edge の線とラベルを画像へ持ち越すための前処理（./exportSvgStyles.ts）。
+    // 切替後の算出値を写す必要があるので、Export 用表示にしてから行う
+    const restoreSvgStyles = inlineSvgStylesForExport(
+      wrapperRef.current ?? document,
+    )
+
+    return () => {
+      restoreSvgStyles()
+      setExportMode(false)
+    }
+  }, [])
+
+  useEffect(
+    () =>
+      registerCanvasExportSource({
+        getContentBounds,
+        getCaptureTarget,
+        beginExportView,
+      }),
+    [beginExportView, getCaptureTarget, getContentBounds],
+  )
 
   const handleMoveEnd = useCallback((_event: unknown, viewport: Viewport) => {
     // Pan / Zoom の途中経過ではなく確定値だけを store へ送る。
@@ -214,31 +327,41 @@ function WorkflowCanvasInner() {
   )
 
   return (
-    <div
-      className="h-full w-full"
-      onDragOver={handleDragOver}
-      onDrop={handleDrop}
-    >
-      <ReactFlow
-        nodes={reactFlowNodes}
-        edges={reactFlowEdges}
-        nodeTypes={workflowNodeTypes}
-        onNodesChange={handleNodesChange}
-        onEdgesChange={handleEdgesChange}
-        onConnect={handleConnect}
-        onSelectionChange={handleSelectionChange}
-        onMoveEnd={handleMoveEnd}
-        isValidConnection={handleIsValidConnection}
-        onNodesDelete={handleNodesDelete}
-        onEdgesDelete={handleEdgesDelete}
-        deleteKeyCode={['Delete', 'Backspace']}
-        fitView
+    <CanvasExportModeContext.Provider value={exportMode}>
+      <div
+        ref={wrapperRef}
+        className={`h-full w-full ${exportMode ? EXPORT_VIEW_CLASS : ''}`}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
       >
-        <Background />
-        <MiniMap />
-        <Controls />
-      </ReactFlow>
-    </div>
+        <ReactFlow
+          nodes={reactFlowNodes}
+          edges={reactFlowEdges}
+          nodeTypes={workflowNodeTypes}
+          onNodesChange={handleNodesChange}
+          onEdgesChange={handleEdgesChange}
+          onConnect={handleConnect}
+          onSelectionChange={handleSelectionChange}
+          onMoveEnd={handleMoveEnd}
+          isValidConnection={handleIsValidConnection}
+          onNodesDelete={handleNodesDelete}
+          onEdgesDelete={handleEdgesDelete}
+          deleteKeyCode={['Delete', 'Backspace']}
+          fitView
+        >
+          {/* Grid / MiniMap / Controls は Export 用表示では外す（§8.3 / AC-018）。
+              いずれも viewport 要素の外にあるため画像には元から入らないが、
+              「Export 時に非表示にする」要求どおりに描画自体を止める。 */}
+          {exportMode ? null : (
+            <>
+              <Background />
+              <MiniMap />
+              <Controls />
+            </>
+          )}
+        </ReactFlow>
+      </div>
+    </CanvasExportModeContext.Provider>
   )
 }
 

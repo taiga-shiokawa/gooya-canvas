@@ -1,11 +1,12 @@
+import { ExportDialog, useExportCommands } from '@/modules/export'
 import { ProjectDialog, useProjectCommands } from '@/modules/project'
 import { PromptPanel } from '@/modules/prompt'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { projectUseCases, promptUseCases } from './ports'
+import { exportUseCases, projectUseCases, promptUseCases } from './ports'
 
 // Header（docs/functional-design.md §4.2）。
-// File メニューは Phase 4（Persistence）、Generate Prompt は Phase 5。
-// Export PDF / PNG は Phase 7、Main Actions の Review Flow は Phase 6 で埋める。
+// File メニューは Phase 4（Persistence）+ Phase 7（Export）、Generate Prompt は Phase 5。
+// Main Actions の Review Flow は Phase 6 で埋める。
 //
 // ヘッドレス UI ライブラリは未導入のため、メニューは自前実装で
 // Esc クローズ・外側クリック・aria 属性・フォーカス復帰を担保する
@@ -14,10 +15,11 @@ import { projectUseCases, promptUseCases } from './ports'
 const MENU_ID = 'app-file-menu'
 
 const MENU_ITEM_CLASS =
-  'w-full rounded px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100 focus-visible:bg-slate-100 focus-visible:outline-none'
+  'w-full rounded px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100 focus-visible:bg-slate-100 focus-visible:outline-none disabled:cursor-default disabled:text-slate-400 disabled:hover:bg-transparent'
 
 export function AppHeader() {
   const commands = useProjectCommands(projectUseCases)
+  const exportCommands = useExportCommands(exportUseCases)
   const [promptOpen, setPromptOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -104,6 +106,27 @@ export function AppHeader() {
               >
                 Save Project
               </button>
+
+              <hr className="my-1 border-slate-200" />
+
+              <button
+                type="button"
+                role="menuitem"
+                disabled={exportCommands.isExporting}
+                onClick={() => runCommand(exportCommands.exportPdf)}
+                className={MENU_ITEM_CLASS}
+              >
+                Export PDF
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={exportCommands.isExporting}
+                onClick={() => runCommand(exportCommands.exportPng)}
+                className={MENU_ITEM_CLASS}
+              >
+                Export PNG
+              </button>
             </div>
           ) : null}
         </div>
@@ -120,6 +143,7 @@ export function AppHeader() {
       </div>
 
       <ProjectDialog state={commands.dialog} />
+      <ExportDialog state={exportCommands.dialog} />
       {promptOpen ? (
         <PromptPanel
           useCases={promptUseCases}

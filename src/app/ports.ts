@@ -1,3 +1,11 @@
+import { canvasExportSource } from '@/modules/canvas'
+import {
+  createBrowserExportFilePort,
+  createExportUseCases,
+  createHtmlToImageCanvasImagePort,
+  createJsPdfComposerPort,
+  type ExportUseCases,
+} from '@/modules/export'
 import {
   createBrowserProjectFilePort,
   createProjectUseCases,
@@ -21,4 +29,17 @@ export const projectUseCases: ProjectUseCases = createProjectUseCases({
 
 export const promptUseCases: PromptUseCases = createPromptUseCases({
   clipboard: createBrowserClipboardPort(),
+})
+
+// Export（Phase 7）。@xyflow/react と Canvas の DOM に依存する部分は canvas モジュールが持ち
+// （repository-structure §5.1 #5）、export はそれをポートとして受け取る。
+// 両モジュールは互いを import しないので（同 #4）、ここで初めて繋がる。
+export const exportUseCases: ExportUseCases = createExportUseCases({
+  canvas: canvasExportSource,
+  image: createHtmlToImageCanvasImagePort({
+    resolveTarget: canvasExportSource.getCaptureTarget,
+  }),
+  pdf: createJsPdfComposerPort(),
+  file: createBrowserExportFilePort(),
+  now: () => new Date(),
 })

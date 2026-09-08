@@ -7,6 +7,7 @@ import {
   type NodeProps,
 } from '@xyflow/react'
 import { useEffect } from 'react'
+import { useCanvasExportMode } from '../canvasExportMode'
 import { NODE_KIND_ACCENT } from './nodeKindAccent'
 import { NodeKindIcon } from './nodeKindIcon'
 import type { WorkflowNodeCardData } from './workflowNodeCardData'
@@ -26,6 +27,15 @@ function sourceHandleOffset(index: number, count: number): string {
   return `${((index + 0.5) / count) * 100}%`
 }
 
+/**
+ * Export 用表示では Handle を消す（§8.3 / AC-018）。
+ *
+ * アンマウントではなく `visibility: hidden` にするのは、Handle の DOM が消えると
+ * React Flow が持つ handleBounds の前提が崩れて Edge の描画位置が変わりうるため。
+ * 見えないだけの要素は html-to-image の出力にも現れない。
+ */
+const HANDLE_CLASS = '!size-2 !border-2 !border-white'
+
 export function WorkflowNodeCard({
   id,
   data,
@@ -35,6 +45,12 @@ export function WorkflowNodeCard({
   const hasTarget = !KINDS_WITHOUT_TARGET.includes(data.kind)
   const hasSource = !KINDS_WITHOUT_SOURCE.includes(data.kind)
   const branches = data.kind === 'condition' ? data.branches : []
+
+  // Export 用表示のあいだは Handle と選択枠を出さない（§8.3 / AC-018）。
+  // transition も切る。付けたままだと選択枠が 150ms かけて消えるため、
+  // 消え切る前に画像化されて枠が写り込む。
+  const exportMode = useCanvasExportMode()
+  const handleVisibility = exportMode ? 'invisible' : ''
 
   // Inspector から分岐を追加・削除・リネームすると Handle の id と位置が変わる。
   // React Flow が handleBounds を再計算するのは type / handle position の変更と
@@ -48,15 +64,17 @@ export function WorkflowNodeCard({
 
   return (
     <div
-      className={`w-56 rounded-lg border bg-white shadow-sm transition-shadow ${accent.border} ${
-        selected ? 'shadow-md ring-2 ring-slate-400' : ''
+      className={`w-56 rounded-lg border bg-white shadow-sm ${
+        exportMode ? '' : 'transition-shadow'
+      } ${accent.border} ${
+        selected && !exportMode ? 'shadow-md ring-2 ring-slate-400' : ''
       }`}
     >
       {hasTarget ? (
         <Handle
           type="target"
           position={Position.Top}
-          className="!size-2 !border-2 !border-white !bg-slate-400"
+          className={`${HANDLE_CLASS} !bg-slate-400 ${handleVisibility}`}
         />
       ) : null}
 
@@ -102,7 +120,7 @@ export function WorkflowNodeCard({
         <Handle
           type="source"
           position={Position.Bottom}
-          className="!size-2 !border-2 !border-white !bg-slate-400"
+          className={`${HANDLE_CLASS} !bg-slate-400 ${handleVisibility}`}
         />
       ) : null}
 
@@ -113,7 +131,7 @@ export function WorkflowNodeCard({
           type="source"
           position={Position.Bottom}
           style={{ left: sourceHandleOffset(index, branches.length) }}
-          className="!size-2 !border-2 !border-white !bg-violet-500"
+          className={`${HANDLE_CLASS} !bg-violet-500 ${handleVisibility}`}
         />
       ))}
     </div>
